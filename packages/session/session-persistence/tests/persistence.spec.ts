@@ -239,6 +239,11 @@ class ControlledBackend implements PersistenceBackend<never> {
     if (entry !== undefined) entry.events.push(...structuredClone(closers) as SessionEvent[])
   }
 
+  deleteStored(id: SessionId): Promise<void> {
+    this.store.delete(id)
+    return Promise.resolve()
+  }
+
   async list(): Promise<SessionHeader[]> {
     return [...this.store.values()].map(entry => structuredClone(entry.meta))
   }
