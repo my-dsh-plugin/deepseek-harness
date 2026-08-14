@@ -173,6 +173,12 @@ class TestPersistence extends SessionPersistence {
   setDurable(inspection: SessionInspection): void {
     this.durable.set(inspection.meta.id, inspection)
   }
+
+  delete(id: SessionId): Promise<void> {
+    this.durable.delete(id)
+    this.logical.delete(id)
+    return Promise.resolve()
+  }
 }
 
 export interface TestHarness {

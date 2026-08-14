@@ -121,13 +121,20 @@ export class SqliteSessionPersistence extends SessionPersistence {
   ): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
     return this.coordinator.readFrom(id, fromSeq, signal)
   }
-
   list(signal?: AbortSignal): Promise<SessionHeader[]> {
     return this.store.list(signal)
   }
 
   listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot[]> {
     return this.store.listSnapshots(signal)
+  }
+
+  /**
+   * Durably delete one session's stored log through the coordinator, which
+   * serializes on the id chain and refuses live sessions.
+   */
+  delete(id: SessionId): Promise<void> {
+    return this.coordinator.delete(id)
   }
 }
 

@@ -91,4 +91,17 @@ export interface IWorkspaces {
    * @param sessionId - session to archive.
    */
   archiveSession(sessionId: SessionId): Promise<void>
+  /**
+   * Unarchive a session out of the registry-global set: it reappears on every
+   * grouping surface in its retained accounting slot.
+   * @param sessionId - session to unarchive.
+   */
+  unarchiveSession(sessionId: SessionId): Promise<void>
+  /**
+   * Delete a session durably: its stored log is removed and its workspace
+   * accounting slot and archive-set entry are dropped. A live session rejects
+   * with a `session-live` error.
+   * @param sessionId - session to delete.
+   */
+  deleteSession(sessionId: SessionId): Promise<void>
 }

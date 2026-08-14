@@ -293,6 +293,27 @@ export class WorkspaceRuntime implements IWorkspaces {
   }
 
   /**
+   * Unarchive a session out of the registry-global set: it reappears on every
+   * grouping surface in its retained accounting slot.
+   * @param sessionId - session to unarchive.
+   */
+  async unarchiveSession(sessionId: SessionId): Promise<void> {
+    const result = await this.manager.unarchiveSession(sessionId)
+    if (!result.ok) throw new Error(`session unarchive failed: ${result.error.code}: ${result.error.message}`)
+  }
+
+  /**
+   * Delete a session durably: its stored log is removed and its workspace
+   * accounting slot and archive-set entry are dropped. A live session rejects
+   * with a `session-live` error.
+   * @param sessionId - session to delete.
+   */
+  async deleteSession(sessionId: SessionId): Promise<void> {
+    const result = await this.manager.deleteSession(sessionId)
+    if (!result.ok) throw new Error(`session delete failed: ${result.error.code}: ${result.error.message}`)
+  }
+
+  /**
    * Move a session within its Workspace's manual order (DOM-insertBefore-like).
    * @param workspaceId - owning workspace.
    * @param sessionId - accounted session to move.

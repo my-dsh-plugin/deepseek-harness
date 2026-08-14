@@ -39,16 +39,32 @@ export function WorkspaceId(id: string): WorkspaceId {
 }
 
 /**
- * An archiveSession request named a session neither live nor in session
+ * An archive/delete request named a session neither live nor in session
  * persistence — a definite miss only; storage faults propagate as themselves.
  */
 export class WorkspaceUnknownSessionError extends Error {
   /**
    * @param sessionId - The unknown session id.
+   * @param action - The refused operation, for the message.
+   */
+  constructor(readonly sessionId: SessionId, action: 'archive' | 'delete' = 'archive') {
+    super(`cannot ${action} session '${sessionId}': live sessions and session persistence hold no such session`)
+    this.name = 'WorkspaceUnknownSessionError'
+  }
+}
+
+/**
+ * A deleteSession request named a session currently attached to the live
+ * session store. Deleting a live session's log underneath its running owner
+ * would corrupt the conversation, so deletion refuses while it is live.
+ */
+export class WorkspaceSessionLiveError extends Error {
+  /**
+   * @param sessionId - The live session id.
    */
   constructor(readonly sessionId: SessionId) {
-    super(`cannot archive session '${sessionId}': live sessions and session persistence hold no such session`)
-    this.name = 'WorkspaceUnknownSessionError'
+    super(`cannot delete session '${sessionId}': the session is live; close it before deleting`)
+    this.name = 'WorkspaceSessionLiveError'
   }
 }
 
@@ -251,6 +267,82 @@ export class WorkspaceRegistry extends Service {
       }
       const state = this.requireState()
       await this.setState({ ...state, archivedSessionIds: [...state.archivedSessionIds, sessionId] })
+    })
+  }
+
+  /**
+   * Unarchive one session durably: remove it from the registry-global archive
+   * set. The session's workspace accounting slot was retained by archiving,
+   * so unarchiving restores its previous position on every grouping surface.
+   * A session outside the archive set resolves without writing — the
+   * existence of the session itself is not consulted, so a stale archived id
+   * whose log vanished can always be cleaned up through this method.
+   * @param sessionId - The session to unarchive.
+   * @returns resolution after durability.
+   */
+  unarchiveSession(sessionId: SessionId): Promise<void> {
+    return this.enqueueOperation(async () => {
+      const state = this.requireState()
+      if (!state.archivedSessionIds.includes(sessionId)) return
+      await this.setState({
+        ...state,
+        archivedSessionIds: state.archivedSessionIds.filter(id => id !== sessionId),
+      })
+    })
+  }
+
+  /**
+   * Delete one session durably: remove its stored log through session
+   * persistence, drop it from the header index, the registry-global archive
+   * set, and every workspace's session accounting. A session attached to the
+   * live session store refuses with {@link WorkspaceSessionLiveError}; a
+   * session neither live nor in session persistence fails with
+   * {@link WorkspaceUnknownSessionError}. The log deletion is the commit
+   * point — the header-index and accounting cleanup that follows it is
+   * best-effort and logs failures, because a reportable failure after the
+   * log is gone would only invite a doomed retry.
+   * @param sessionId - The session to delete.
+   * @returns resolution after the log deletion committed.
+   */
+  deleteSession(sessionId: SessionId): Promise<void> {
+    return this.enqueueOperation(async () => {
+      if (this.ctx.get('sessions')?.get(sessionId) !== undefined) {
+        throw new WorkspaceSessionLiveError(sessionId)
+      }
+      if (!(await this.sessionKnown(sessionId))) {
+        throw new WorkspaceUnknownSessionError(sessionId, 'delete')
+      }
+      // The irreversible part first: once the stored log is gone, the
+      // registry-side cleanup below can only make the world more consistent.
+      await this.ctx.sessionPersistence.delete(sessionId)
+      this.headers.delete(sessionId)
+      this.sessionPaths.delete(sessionId)
+      this.invalidSessionPaths.delete(sessionId)
+      const state = this.requireState()
+      const archivedSessionIds = state.archivedSessionIds.filter(id => id !== sessionId)
+      if (archivedSessionIds.length !== state.archivedSessionIds.length) {
+        try {
+          await this.setState({ ...state, archivedSessionIds })
+        } catch (error) {
+          this.ctx.logger.warn(
+            `session '${sessionId}' was deleted but its archive-set entry could not be cleared: ${String(error)}`,
+          )
+        }
+      }
+      // Only one workspace may account a session; detaching from every entity
+      // is still safe (a no-op write is aborted by the unchanged sentinel),
+      // and `mutate` additionally prunes accounts whose header index entry is
+      // gone, so an unaccounted-in-projection lingering raw account is
+      // cleared by the same pass.
+      for (const entity of this.entities.values()) {
+        try {
+          await entity.detachSession(sessionId)
+        } catch (error) {
+          this.ctx.logger.warn(
+            `session '${sessionId}' was deleted but workspace '${entity.id}' still accounts it: ${String(error)}`,
+          )
+        }
+      }
     })
   }
 

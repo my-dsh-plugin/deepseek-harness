@@ -170,6 +170,24 @@ export class SqliteStore implements PersistenceBackend<number> {
     return { meta: rowToMeta(snapshot.row), events: preserved.filter(event => event.seq >= fromSeq) }
   }
 
+  /**
+   * Remove one session's rows in ONE transaction: the sessions row plus every
+   * event row, or roll back entirely. A session with no row resolves without
+   * writing.
+   */
+  async deleteStored(id: SessionId, signal?: AbortSignal): Promise<void> {
+    await this.observe(signal)
+    this.db.exec(sql('begin-immediate'))
+    try {
+      validateSchemaForMutation(this.databaseConstructor, this.db, this.databasePath)
+      this.db.prepare(sql('delete-session-events')).run(id)
+      this.db.prepare(sql('delete-session')).run(id)
+      this.db.exec(sql('commit'))
+    } catch (error: unknown) {
+      this.rollback(error, 'delete')
+    }
+  }
+
   async appendBatch(
     meta: SessionHeader,
     events: readonly SessionEvent[],

@@ -228,6 +228,19 @@ export abstract class SessionPersistence extends Service {
   abstract list(signal?: AbortSignal): Promise<SessionHeader[]>
 
   /**
+   * Durably delete one session's stored log. The session must not be live
+   * (attached to the session store) and must not have a buffered tail still
+   * draining; both refuse with an error naming the session. Deleting an
+   * absent session resolves without writing. Implementations drop the
+   * backend artifact and any in-memory identity state for the id, so a later
+   * {@link list} no longer reports it and a later {@link create} may reuse
+   * the id.
+   * @param id - the persisted session to delete.
+   * @returns resolution after the artifact is gone.
+   */
+  abstract delete(id: SessionId): Promise<void>
+
+  /**
    * List materialized sessions with cheap per-log change tokens.
    *
    * Repeated observations of an unchanged log return the same revision. A

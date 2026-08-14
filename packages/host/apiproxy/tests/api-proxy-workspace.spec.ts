@@ -568,4 +568,55 @@ describe('Host Workspace increments', () => {
     })
     abort.abort()
   })
+
+  it('unarchives a session out of the global set, streaming the changed set once', async () => {
+    const { api, root } = await harness()
+    const workspace = expectOk(await api.workspace.create(request({ path: stageDir(root, 'unarchive-home') }))).workspace
+    const sessionId = SessionId('session-to-unarchive')
+    expectOk(await api.sessions.create(request({ workspaceId: workspace.workspaceId, sessionId })))
+    expectOk(await api.workspace.archiveSession(request({ sessionId })))
+    expect(expectOk(await api.workspace.list(request({}))).archivedSessionIds).toEqual([sessionId])
+
+    const abort = new AbortController()
+    const stream: AsyncIterator<RpcRequest<HostFrame>> =
+      api.events.host(request({}), abort.signal)[Symbol.asyncIterator]()
+    const changed = nextHostFrame(stream)
+    expect(expectOk(await api.workspace.unarchiveSession(request({ sessionId }))).archivedSessionIds)
+      .toEqual([])
+    expect(await changed).toMatchObject({
+      payload: { type: 'host/archived-sessions-changed', archivedSessionIds: [] },
+    })
+
+    // The idempotent repeat emits no second frame: the next observed frame is
+    // the workspace-changed of a later attach, not another unarchive snapshot.
+    const after = nextHostFrame(stream)
+    expect(expectOk(await api.workspace.unarchiveSession(request({ sessionId }))).archivedSessionIds)
+      .toEqual([])
+    const otherSession = SessionId('session-after-unarchive')
+    expectOk(await api.sessions.create(request({ workspaceId: workspace.workspaceId, sessionId: otherSession })))
+    expect((await after).payload.type).not.toBe('host/archived-sessions-changed')
+
+    // Stale ids outside the set resolve without consulting existence.
+    expect(expectOk(await api.workspace.unarchiveSession(request({ sessionId: SessionId('session-ghost') })))
+      .archivedSessionIds).toEqual([])
+    abort.abort()
+  })
+
+  it('refuses to delete a live session with session-live and an unknown one with session-not-found', async () => {
+    const { api, root } = await harness()
+    const workspace = expectOk(await api.workspace.create(request({ path: stageDir(root, 'delete-home') }))).workspace
+    const sessionId = SessionId('session-to-delete')
+    expectOk(await api.sessions.create(request({ workspaceId: workspace.workspaceId, sessionId })))
+
+    const live = await api.workspace.deleteSession(request({ sessionId }))
+    expect(live.result).toMatchObject({
+      ok: false,
+      error: { code: 'session-live', details: { sessionId } },
+    })
+    const missing = await api.workspace.deleteSession(request({ sessionId: SessionId('session-ghost') }))
+    expect(missing.result).toMatchObject({
+      ok: false,
+      error: { code: 'session-not-found', details: { sessionId: 'session-ghost' } },
+    })
+  })
 })

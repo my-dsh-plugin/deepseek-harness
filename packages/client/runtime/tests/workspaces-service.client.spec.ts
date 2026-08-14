@@ -488,6 +488,63 @@ describe('WorkspaceRuntime', () => {
     expect(workspaces.list.getSnapshot().archivedSessionIds).toEqual(['s-open'])
   })
 
+  it('unarchives a session, projecting the unary echo and the changed frame', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const sessions = new SessionRuntime(ctx, api, fakeRemote())
+    const workspaces = new WorkspaceRuntime(ctx, api, sessions)
+    api.onWorkspaceList = () => Promise.resolve(ok({
+      items: [],
+      archivedSessionIds: [sid('s-idle')],
+    }) as never)
+    await workspaces.refresh()
+    api.onWorkspaceUnarchiveSession = () => Promise.resolve(ok({ archivedSessionIds: [] }))
+
+    // The unary echo installs the full updated set without waiting for the frame.
+    await expect(workspaces.unarchiveSession(sid('s-idle'))).resolves.toBeUndefined()
+    expect(api.callsOf('workspace.unarchiveSession')).toEqual([{ sessionId: 's-idle' }])
+    expect(workspaces.list.getSnapshot().archivedSessionIds).toEqual([])
+
+    // A remote frame re-installs the set; the idempotent repeat echoes it back.
+    workspaces.handleHostEnvelope({
+      rpcId: 'frame' as never,
+      payload: { type: 'host/archived-sessions-changed', archivedSessionIds: [sid('s-idle')] },
+    } as never)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(workspaces.list.getSnapshot().archivedSessionIds).toEqual(['s-idle'])
+
+    // A Host failure leaves the set untouched.
+    api.onWorkspaceUnarchiveSession = () => Promise.resolve(err({
+      code: 'session-not-found', message: 'no session ghost', details: { sessionId: sid('ghost') },
+    }))
+    await expect(workspaces.unarchiveSession(sid('ghost'))).rejects.toThrow(/session-not-found/)
+    expect(workspaces.list.getSnapshot().archivedSessionIds).toEqual(['s-idle'])
+  })
+
+  it('deletes a session, projecting the returned archive set and the failure codes', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const sessions = new SessionRuntime(ctx, api, fakeRemote())
+    const workspaces = new WorkspaceRuntime(ctx, api, sessions)
+    api.onWorkspaceList = () => Promise.resolve(ok({
+      items: [],
+      archivedSessionIds: [sid('s-gone')],
+    }) as never)
+    await workspaces.refresh()
+
+    // The unary echo installs the full updated set without waiting for the frame.
+    await expect(workspaces.deleteSession(sid('s-gone'))).resolves.toBeUndefined()
+    expect(api.callsOf('workspace.deleteSession')).toEqual([{ sessionId: 's-gone' }])
+    expect(workspaces.list.getSnapshot().archivedSessionIds).toEqual([])
+
+    // A live-session refusal surfaces as a session-live error and keeps the set.
+    api.onWorkspaceDeleteSession = () => Promise.resolve(err({
+      code: 'session-live', message: 'the session is live', details: { sessionId: sid('s-open') },
+    }))
+    await expect(workspaces.deleteSession(sid('s-open'))).rejects.toThrow(/session-live/)
+    expect(workspaces.list.getSnapshot().archivedSessionIds).toEqual([])
+  })
+
   it('clears a current archived by a remote frame and shields the set from a stale in-flight baseline', async () => {
     const ctx = new Context()
     const api = new FakeApiClient()

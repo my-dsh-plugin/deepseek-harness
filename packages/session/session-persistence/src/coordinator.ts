@@ -184,6 +184,14 @@ export interface PersistenceBackend<TornMarker = unknown> {
   appendBatch(meta: SessionHeader, events: readonly SessionEvent[], isMaterialized: boolean): Promise<void>
 
   /**
+   * Durably remove one session's stored artifact. A session with no artifact
+   * resolves without writing. Returns once removal is durable.
+   * @param id - the persisted session to delete.
+   * @param signal - optional cancellation for backend delete work.
+   */
+  deleteStored(id: SessionId, signal?: AbortSignal): Promise<void>
+
+  /**
    * Make a crash repair durable: truncate the torn tail (iff
    * `tornMarker !== undefined`) and append `closers` (iff any). NOT required to
    * be atomic — a file backend may truncate-then-append in two fsync'd steps.
@@ -998,6 +1006,29 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   }
 
   // Listing is a direct backend read and needs no coordinator state.
+
+  /**
+   * Durably delete one session's stored log. Refuses while the session is
+   * live (attached to the session store) or its buffered tail is still
+   * draining; an absent session resolves without writing. Runs on the id's
+   * serialization chain, so it cannot interleave with a concurrent append,
+   * repair, or preparation commit: a queued delete waits for them, and one
+   * that runs first invalidates any cached preparation and drops the
+   * in-memory state, so a later {@link create} may reuse the id.
+   * @param id - the persisted session to delete.
+   * @returns resolution after the artifact is gone.
+   */
+  delete(id: SessionId): Promise<void> {
+    return this.serialize(id, async () => {
+      await this.waitForRetirement(id)
+      if (this.ctx.sessions.get(id) !== undefined) {
+        throw new Error(`cannot delete session "${id}" while it is live`)
+      }
+      this.preparations.invalidate(id)
+      await this.backend.deleteStored(id)
+      this.states.delete(id)
+    })
+  }
 
   // --- per-id serialization + adoption helpers ---
 

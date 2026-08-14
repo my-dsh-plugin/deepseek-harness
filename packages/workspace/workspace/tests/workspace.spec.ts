@@ -48,7 +48,8 @@ async function harness(options: HarnessOptions = {}) {
   const list = vi.fn(async () => listed)
   const load = vi.fn(() => { throw new Error('event bodies must not be loaded') })
   const inspect = vi.fn(() => { throw new Error('event bodies must not be inspected') })
-  ctx.provide('sessionPersistence', { list, load, inspect } as never)
+  const del = vi.fn(async (id: SessionId) => { listed = listed.filter(header => header.id !== id) })
+  ctx.provide('sessionPersistence', { list, load, inspect, delete: del } as never)
 
   if (options.sessionStore === true) {
     await ctx.plugin(SessionStore)
@@ -75,6 +76,7 @@ async function harness(options: HarnessOptions = {}) {
     list,
     load,
     inspect,
+    del,
     setSessions: (headers: SessionHeader[]) => { listed = headers },
   }
 }
@@ -940,5 +942,76 @@ describe('registry-global session archive', () => {
     )
     const upgraded = await harness({ pool: legacy })
     expect(upgraded.registry.archivedSessionIds).toEqual([])
+  })
+
+  it('unarchives durably and idempotently, restoring the retained accounting slot', async () => {
+    const dir = await makeDir('unarchive-home')
+    const result = await harness({ sessions: [header('s1', dir, 100)] })
+    const workspace = result.registry.list()[0]!
+    await result.registry.archiveSession(SessionId('s1'))
+    expect(result.registry.archivedSessionIds).toEqual(['s1'])
+    // Archiving retained the account slot; unarchiving restores the position.
+    expect(workspace.sessionIds).toContain('s1')
+
+    await result.registry.unarchiveSession(SessionId('s1'))
+    expect(result.registry.archivedSessionIds).toEqual([])
+    expect(workspace.sessionIds).toContain('s1')
+    expect(storedState(result.pool).archivedSessionIds).toEqual([])
+    const changesAfter = result.changes.filter(change => change.table === '').length
+
+    // The idempotent repeat neither rewrites the medium nor emits a change.
+    await result.registry.unarchiveSession(SessionId('s1'))
+    expect(result.registry.archivedSessionIds).toEqual([])
+    expect(result.changes.filter(change => change.table === '').length).toBe(changesAfter)
+  })
+
+  it('unarchives an id outside the set without consulting existence, cleaning stale ids', async () => {
+    const result = await harness({ sessions: [] })
+    await result.registry.unarchiveSession(SessionId('ghost'))
+    expect(result.registry.archivedSessionIds).toEqual([])
+    expect(result.changes.filter(change => change.table === '').length).toBe(0)
+  })
+
+  it('deletes a session durably: log, header index, archive set, and accounting', async () => {
+    const dir = await makeDir('delete-home')
+    const result = await harness({ sessions: [header('s1', dir, 100), header('s2', dir, 200)] })
+    const workspace = result.registry.list()[0]!
+    await result.registry.archiveSession(SessionId('s1'))
+
+    await result.registry.deleteSession(SessionId('s1'))
+    expect(result.del).toHaveBeenCalledWith(SessionId('s1'))
+    expect(result.registry.archivedSessionIds).toEqual([])
+    expect(workspace.sessionIds).toEqual(['s2'])
+    expect(storedState(result.pool).archivedSessionIds).toEqual([])
+    // The header index forgot the session: a re-archive reports a definite miss.
+    await expect(result.registry.archiveSession(SessionId('s1')))
+      .rejects.toThrow(/cannot archive session 's1'/)
+  })
+
+  it('deletes a session whose log vanished out-of-band, cleaning the stale archive entry', async () => {
+    const dir = await makeDir('delete-stale')
+    const result = await harness({ sessions: [header('s1', dir, 100)] })
+    await result.registry.archiveSession(SessionId('s1'))
+    // The header index still knows s1 from startup, so the delete proceeds
+    // even though the log is already gone.
+    result.setSessions([])
+
+    await result.registry.deleteSession(SessionId('s1'))
+    expect(result.registry.archivedSessionIds).toEqual([])
+    expect(result.del).toHaveBeenCalledWith(SessionId('s1'))
+  })
+
+  it('refuses to delete live and unknown sessions without writing', async () => {
+    const dir = await makeDir('delete-live')
+    const result = await harness({
+      sessions: [header('s1', dir, 100)],
+      liveSessions: [header('live', dir, 300)],
+    })
+    await expect(result.registry.deleteSession(SessionId('live')))
+      .rejects.toThrow(/the session is live/)
+    await expect(result.registry.deleteSession(SessionId('ghost')))
+      .rejects.toThrow(/cannot delete session 'ghost'/)
+    expect(result.del).not.toHaveBeenCalled()
+    expect(storedState(result.pool).archivedSessionIds).toEqual([])
   })
 })

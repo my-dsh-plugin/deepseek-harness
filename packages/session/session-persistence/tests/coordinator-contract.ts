@@ -1301,6 +1301,65 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       }
     })
 
+    it('delete of an absent session resolves without writing', async () => {
+      const fix = await makeFixture()
+      const { ctx, fiber } = await freshCtx(fix)
+      try {
+        await ctx.sessionPersistence.delete(SessionId('nope'))
+        expect(await ctx.sessionPersistence.list()).toEqual([])
+      } finally {
+        await fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
+    it('delete removes the log and lazy state, dropping the id from list and releasing it for reuse', async () => {
+      const fix = await makeFixture()
+      const { ctx, fiber } = await freshCtx(fix)
+      try {
+        const m = meta('del', WORK)
+        await ctx.sessionPersistence.create(m)
+        await ctx.sessionPersistence.append(m.id, oneTurnLog())
+        expect((await ctx.sessionPersistence.list()).map(header => header.id)).toEqual([m.id])
+
+        await ctx.sessionPersistence.delete(m.id)
+        expect(await ctx.sessionPersistence.list()).toEqual([])
+        await expect(ctx.sessionPersistence.load(m.id)).rejects.toThrow(/not found/)
+
+        // The id is reusable after the delete: a fresh create materializes again.
+        await ctx.sessionPersistence.create(meta('del', WORK))
+        await ctx.sessionPersistence.append(m.id, oneTurnLog())
+        expect((await ctx.sessionPersistence.load(m.id)).events).toHaveLength(6)
+      } finally {
+        await fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
+    it('delete refuses a live session and succeeds once its tail has drained', async () => {
+      const fix = await makeFixture()
+      const { ctx, fiber } = await freshCtx(fix)
+      let session!: Session
+      const sessionFiber = await ctx.plugin(Object.assign((inner: Context) => {
+        session = inner.sessions.create(SessionId('live-del'), { meta: { cwd: WORK } })
+      }, { inject: ['sessions'] }))
+      try {
+        session.append('turn/start', { turn: 1 })
+        await ctx.sessions.flush(session)
+        await expect(ctx.sessionPersistence.delete(session.id)).rejects.toThrow(/while it is live/)
+
+        await sessionFiber.dispose()
+        await vi.waitFor(async () => {
+          await ctx.sessionPersistence.delete(session.id)
+        })
+        expect(await ctx.sessionPersistence.list()).toEqual([])
+      } finally {
+        await sessionFiber.dispose()
+        await fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
     it('create rejects a duplicate id (in memory and on a persisted log)', async () => {
       const fix = await makeFixture()
       const first = await freshCtx(fix)
