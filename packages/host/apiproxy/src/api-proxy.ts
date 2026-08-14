@@ -3487,6 +3487,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           ctx.on('session/disposed', (session: Session) => {
             queue.push(frame({ type: 'host/session-removed', sessionId: session.id }))
           }),
+          // A durable delete through the workspace registry drops the session
+          // from every surface with the same frame disposal uses, so clients
+          // do not wait for their next session.list baseline.
+          ctx.on('session/deleted', (sessionId: SessionId) => {
+            queue.push(frame({ type: 'host/session-removed', sessionId }))
+          }),
           ctx.on('agent/status', ({ agent, status }: { agent: Agent; status: AgentStatus }) => {
             queue.push(frame({ type: 'host/session-status', sessionId: agent.id, running: status === 'running' }))
           }),

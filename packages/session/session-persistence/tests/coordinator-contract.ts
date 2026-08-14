@@ -1336,7 +1336,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       }
     })
 
-    it('delete refuses a live session and succeeds once its tail has drained', async () => {
+    it('delete refuses while the write-behind holds events and succeeds once drained, even while attached', async () => {
       const fix = await makeFixture()
       const { ctx, fiber } = await freshCtx(fix)
       let session!: Session
@@ -1345,14 +1345,18 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       }, { inject: ['sessions'] }))
       try {
         session.append('turn/start', { turn: 1 })
+        // Unflushed events: deletion must not drop the queued tail.
+        await expect(ctx.sessionPersistence.delete(session.id)).rejects.toThrow(/pending writes/)
         await ctx.sessions.flush(session)
-        await expect(ctx.sessionPersistence.delete(session.id)).rejects.toThrow(/while it is live/)
 
-        await sessionFiber.dispose()
-        await vi.waitFor(async () => {
-          await ctx.sessionPersistence.delete(session.id)
-        })
+        // Drained: deletion proceeds even though the session is still attached.
+        await ctx.sessionPersistence.delete(session.id)
         expect(await ctx.sessionPersistence.list()).toEqual([])
+
+        // A later append on the still-attached session fails loudly, not corrupts.
+        await expect(ctx.sessionPersistence.append(session.id, [{
+          type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 1 },
+        } as SessionEvent])).rejects.toThrow(/not found/)
       } finally {
         await sessionFiber.dispose()
         await fiber.dispose()

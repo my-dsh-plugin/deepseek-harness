@@ -1008,21 +1008,24 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   // Listing is a direct backend read and needs no coordinator state.
 
   /**
-   * Durably delete one session's stored log. Refuses while the session is
-   * live (attached to the session store) or its buffered tail is still
-   * draining; an absent session resolves without writing. Runs on the id's
-   * serialization chain, so it cannot interleave with a concurrent append,
-   * repair, or preparation commit: a queued delete waits for them, and one
-   * that runs first invalidates any cached preparation and drops the
-   * in-memory state, so a later {@link create} may reuse the id.
+   * Durably delete one session's stored log. Refuses while the session has
+   * queued or in-flight events in its write-behind (the durable log would
+   * lose that tail) or while its buffered tail is still draining; a session
+   * attached to the store with a drained write-behind is deletable — its log
+   * disappears from every surface, and a later append fails loudly instead
+   * of corrupting. Runs on the id's serialization chain, so a queued delete
+   * waits for any earlier append, and one that runs first invalidates any
+   * cached preparation and drops the in-memory state, so a later
+   * {@link create} may reuse the id.
    * @param id - the persisted session to delete.
    * @returns resolution after the artifact is gone.
    */
   delete(id: SessionId): Promise<void> {
     return this.serialize(id, async () => {
       await this.waitForRetirement(id)
-      if (this.ctx.sessions.get(id) !== undefined) {
-        throw new Error(`cannot delete session "${id}" while it is live`)
+      const live = [...this.live.entries()].find(([session]) => session.id === id)?.[1]
+      if (live !== undefined && live.writes.hasWork) {
+        throw new Error(`cannot delete session "${id}" while it has pending writes`)
       }
       this.preparations.invalidate(id)
       await this.backend.deleteStored(id)

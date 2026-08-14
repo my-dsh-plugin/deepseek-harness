@@ -75,7 +75,10 @@ async function harness(
   const storageDomain = new DomainFacility(ctx, { backend: 'memory', routes: {} })
   ctx.storage.mount('domain', storageDomain)
   ctx.provide('storageDomain', storageDomain)
-  ctx.provide('sessionPersistence', { list: () => Promise.resolve([]) } as never)
+  ctx.provide('sessionPersistence', {
+    list: () => Promise.resolve([]),
+    delete: () => Promise.resolve(),
+  } as never)
   await ctx.plugin(WorkspaceRegistry)
 
   const factory: AgentFactory = {
@@ -602,11 +605,15 @@ describe('Host Workspace increments', () => {
     abort.abort()
   })
 
-  it('refuses to delete a live session with session-live and an unknown one with session-not-found', async () => {
-    const { api, root } = await harness()
+  it('refuses to delete a running session with session-live and an unknown one with session-not-found', async () => {
+    const { api, ctx, root } = await harness()
     const workspace = expectOk(await api.workspace.create(request({ path: stageDir(root, 'delete-home') }))).workspace
     const sessionId = SessionId('session-to-delete')
     expectOk(await api.sessions.create(request({ workspaceId: workspace.workspaceId, sessionId })))
+    // The harness factory registers an idle agent; flip it to running.
+    const agent = ctx.agents.get(sessionId)
+    expect(agent).toBeDefined()
+    ;(agent as { status: string }).status = 'running'
 
     const live = await api.workspace.deleteSession(request({ sessionId }))
     expect(live.result).toMatchObject({
@@ -618,5 +625,25 @@ describe('Host Workspace increments', () => {
       ok: false,
       error: { code: 'session-not-found', details: { sessionId: 'session-ghost' } },
     })
+  })
+
+  it('deletes an idle resident session durably and streams host/session-removed', async () => {
+    const { api, root } = await harness()
+    const workspace = expectOk(await api.workspace.create(request({ path: stageDir(root, 'delete-idle') }))).workspace
+    const sessionId = SessionId('session-to-delete-idle')
+    expectOk(await api.sessions.create(request({ workspaceId: workspace.workspaceId, sessionId })))
+    expectOk(await api.workspace.archiveSession(request({ sessionId })))
+
+    const abort = new AbortController()
+    const stream: AsyncIterator<RpcRequest<HostFrame>> =
+      api.events.host(request({}), abort.signal)[Symbol.asyncIterator]()
+    expect(expectOk(await api.workspace.deleteSession(request({ sessionId }))).archivedSessionIds)
+      .toEqual([])
+    // The durable delete relays the removal so clients drop the row without
+    // waiting for their next session.list baseline.
+    const first = (await nextHostFrame(stream)).payload.type
+    const second = (await nextHostFrame(stream)).payload.type
+    expect([first, second]).toContain('host/session-removed')
+    abort.abort()
   })
 })

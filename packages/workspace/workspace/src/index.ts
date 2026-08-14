@@ -9,6 +9,9 @@ import { randomUUID } from 'node:crypto'
 import { stat } from 'node:fs/promises'
 import { basename } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
+// Type-only: the ctx.agents Context merge and the agent status used by the
+// deleteSession liveness gate.
+import type {} from '@deepseek-ai/dsh-agent'
 import type { SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { DomainGlobal, KvTable } from '@deepseek-ai/dsh-storage-domain'
@@ -54,16 +57,18 @@ export class WorkspaceUnknownSessionError extends Error {
 }
 
 /**
- * A deleteSession request named a session currently attached to the live
- * session store. Deleting a live session's log underneath its running owner
- * would corrupt the conversation, so deletion refuses while it is live.
+ * A deleteSession request named a session whose agent is currently running a
+ * turn. Deleting a running session's log underneath its live writer would
+ * corrupt the in-flight turn, so deletion refuses while it is running; an
+ * idle resident session (no running agent, no pending persistence writes) is
+ * deletable.
  */
 export class WorkspaceSessionLiveError extends Error {
   /**
-   * @param sessionId - The live session id.
+   * @param sessionId - The running session id.
    */
   constructor(readonly sessionId: SessionId) {
-    super(`cannot delete session '${sessionId}': the session is live; close it before deleting`)
+    super(`cannot delete session '${sessionId}': the session is running; stop it before deleting`)
     this.name = 'WorkspaceSessionLiveError'
   }
 }
@@ -83,6 +88,17 @@ export class WorkspaceOrderInvalidError extends Error {
 declare module '@deepseek-ai/cordis' {
   interface Context {
     workspaceRegistry: WorkspaceRegistry
+  }
+  interface Events {
+    /**
+     * A session's durable log was deleted through the workspace registry.
+     * Emitted after the log deletion committed, so consumers (session list
+     * surfaces, projections) can drop the id instead of waiting for their
+     * next baseline.
+     * @mode emit
+     * @param sessionId - the deleted session id.
+     */
+    'session/deleted'(sessionId: SessionId): void
   }
 }
 
@@ -294,19 +310,27 @@ export class WorkspaceRegistry extends Service {
   /**
    * Delete one session durably: remove its stored log through session
    * persistence, drop it from the header index, the registry-global archive
-   * set, and every workspace's session accounting. A session attached to the
-   * live session store refuses with {@link WorkspaceSessionLiveError}; a
-   * session neither live nor in session persistence fails with
-   * {@link WorkspaceUnknownSessionError}. The log deletion is the commit
-   * point — the header-index and accounting cleanup that follows it is
-   * best-effort and logs failures, because a reportable failure after the
+   * set, and every workspace's session accounting. A session whose agent is
+   * running a turn refuses with {@link WorkspaceSessionLiveError}; a session
+   * neither live nor in session persistence fails with
+   * {@link WorkspaceUnknownSessionError}. An idle resident session (attached
+   * to the store but with no running agent) is deletable — persistence
+   * itself refuses while unflushed writes remain — and every surface drops
+   * it via the emitted `session/deleted` event. The log deletion is the
+   * commit point — the header-index and accounting cleanup that follows it
+   * is best-effort and logs failures, because a reportable failure after the
    * log is gone would only invite a doomed retry.
    * @param sessionId - The session to delete.
    * @returns resolution after the log deletion committed.
    */
   deleteSession(sessionId: SessionId): Promise<void> {
     return this.enqueueOperation(async () => {
-      if (this.ctx.get('sessions')?.get(sessionId) !== undefined) {
+      // The agent gate, not store attachment: GUI sessions stay resident in
+      // the store after their last turn, so attachment alone would make
+      // deletion impossible without a restart. Only a running turn owns an
+      // un-deletable log tail.
+      const agent = this.ctx.get('agents')?.get(sessionId)
+      if (agent !== undefined && agent.status === 'running') {
         throw new WorkspaceSessionLiveError(sessionId)
       }
       if (!(await this.sessionKnown(sessionId))) {
@@ -318,6 +342,7 @@ export class WorkspaceRegistry extends Service {
       this.headers.delete(sessionId)
       this.sessionPaths.delete(sessionId)
       this.invalidSessionPaths.delete(sessionId)
+      this.ctx.emit('session/deleted', sessionId)
       const state = this.requireState()
       const archivedSessionIds = state.archivedSessionIds.filter(id => id !== sessionId)
       if (archivedSessionIds.length !== state.archivedSessionIds.length) {

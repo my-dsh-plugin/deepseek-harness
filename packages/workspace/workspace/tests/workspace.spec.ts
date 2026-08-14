@@ -30,6 +30,8 @@ interface HarnessOptions {
   pool?: MemoryMediaPool
   sessions?: SessionHeader[]
   liveSessions?: SessionHeader[]
+  /** Resident agents: `running` ids report status 'running'; `resident` ids report 'idle'. */
+  agents?: { resident?: SessionId[]; running?: SessionId[] }
   sessionStore?: boolean
   backend?: StorageBackend
 }
@@ -58,6 +60,19 @@ async function harness(options: HarnessOptions = {}) {
     ctx.provide('sessions', {
       get: (id: SessionId) => live.get(id),
       list: () => [...live.values()],
+    } as never)
+  }
+
+  if (options.agents !== undefined) {
+    const running = new Set((options.agents.running ?? []).map(id => String(id)))
+    const resident = new Set((options.agents.resident ?? []).map(id => String(id)))
+    ctx.provide('agents', {
+      get: (id: SessionId) => {
+        if (running.has(String(id))) return { status: 'running' }
+        if (resident.has(String(id))) return { status: 'idle' }
+        return undefined
+      },
+      list: () => [],
     } as never)
   }
 
@@ -972,17 +987,20 @@ describe('registry-global session archive', () => {
     expect(result.changes.filter(change => change.table === '').length).toBe(0)
   })
 
-  it('deletes a session durably: log, header index, archive set, and accounting', async () => {
+  it('deletes a session durably: log, header index, archive set, accounting, and the deleted event', async () => {
     const dir = await makeDir('delete-home')
     const result = await harness({ sessions: [header('s1', dir, 100), header('s2', dir, 200)] })
     const workspace = result.registry.list()[0]!
     await result.registry.archiveSession(SessionId('s1'))
+    const deleted: SessionId[] = []
+    result.ctx.on('session/deleted', (id: SessionId) => { deleted.push(id) })
 
     await result.registry.deleteSession(SessionId('s1'))
     expect(result.del).toHaveBeenCalledWith(SessionId('s1'))
     expect(result.registry.archivedSessionIds).toEqual([])
     expect(workspace.sessionIds).toEqual(['s2'])
     expect(storedState(result.pool).archivedSessionIds).toEqual([])
+    expect(deleted).toEqual([SessionId('s1')])
     // The header index forgot the session: a re-archive reports a definite miss.
     await expect(result.registry.archiveSession(SessionId('s1')))
       .rejects.toThrow(/cannot archive session 's1'/)
@@ -1001,17 +1019,28 @@ describe('registry-global session archive', () => {
     expect(result.del).toHaveBeenCalledWith(SessionId('s1'))
   })
 
-  it('refuses to delete live and unknown sessions without writing', async () => {
-    const dir = await makeDir('delete-live')
+  it('refuses to delete a running session and an unknown session without writing', async () => {
+    const dir = await makeDir('delete-running')
     const result = await harness({
       sessions: [header('s1', dir, 100)],
-      liveSessions: [header('live', dir, 300)],
+      agents: { running: [SessionId('running')] },
     })
-    await expect(result.registry.deleteSession(SessionId('live')))
-      .rejects.toThrow(/the session is live/)
+    await expect(result.registry.deleteSession(SessionId('running')))
+      .rejects.toThrow(/the session is running/)
     await expect(result.registry.deleteSession(SessionId('ghost')))
       .rejects.toThrow(/cannot delete session 'ghost'/)
     expect(result.del).not.toHaveBeenCalled()
     expect(storedState(result.pool).archivedSessionIds).toEqual([])
+  })
+
+  it('deletes an idle resident session: attached to the store but not running', async () => {
+    const dir = await makeDir('delete-idle')
+    const result = await harness({
+      sessions: [header('s1', dir, 100)],
+      liveSessions: [header('idle', dir, 200)],
+      agents: { resident: [SessionId('idle')] },
+    })
+    await result.registry.deleteSession(SessionId('idle'))
+    expect(result.del).toHaveBeenCalledWith(SessionId('idle'))
   })
 })
