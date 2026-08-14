@@ -209,7 +209,7 @@ export class FakeApiClient implements IApiClient {
     payload => Promise.resolve(ok({ archivedSessionIds: [(payload as { sessionId: SessionId }).sessionId] }))
 
   onWorkspaceDeleteSession: (payload: unknown) => Promise<RpcResponse<{ archivedSessionIds: SessionId[] }>> =
-    payload => Promise.resolve(ok({ archivedSessionIds: [] }))
+    _payload => Promise.resolve(ok({ archivedSessionIds: [] }))
 
   readonly workspace: IApiClient['workspace'] = {
     list: (payload: unknown) => this.record('workspace.list', payload, this.onWorkspaceList(payload).then(response => (
