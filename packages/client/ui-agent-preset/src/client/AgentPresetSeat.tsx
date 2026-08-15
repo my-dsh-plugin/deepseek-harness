@@ -4,9 +4,11 @@
  *
  * It lives here rather than in the composer because the choice is only
  * available before a conversation starts: once a turn has run, the session's
- * history was produced under that preset's tools and the host refuses to swap
- * them. A control that spends most of its life disabled belongs on the screen
- * where it still works.
+ * history was produced under that preset's tools, and this chip's staged
+ * choice belongs to the new-session flow. A control that spends most of its
+ * life disabled belongs on the screen where it still works. (Idle sessions
+ * can still switch through `agentPreset.select`, e.g. the
+ * `dsh-agent-mode-switcher` plugin.)
  *
  * The menu opens on the staged choice, which starts as the deployment default.
  * Picking stages; the choice reaches a session when one becomes current.

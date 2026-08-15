@@ -26,7 +26,7 @@ export const en: Record<AgentPresetSettingsKey, string> = {
   error: 'Could not load agent presets.',
   userTrust: 'Custom',
   seatHint: 'Agent preset for the session you are about to start',
-  headerHint: 'The agent preset this session runs, fixed when it started',
+  headerHint: 'The agent preset this session runs',
   nav: 'Agent presets',
   sectionIntro:
     'A preset is the plugin composition one session\'s agent runs — its tools, prompt, and capabilities. '
@@ -92,7 +92,7 @@ export const zh: Record<AgentPresetSettingsKey, string> = {
   error: '无法加载 Agent 预设。',
   userTrust: '自定义',
   seatHint: '即将开始的这个会话所用的 Agent 预设',
-  headerHint: '本会话运行的 Agent 预设，开始时即固定',
+  headerHint: '本会话运行的 Agent 预设',
   nav: 'Agent 预设',
   sectionIntro: '预设即一个会话的 Agent 所运行的插件组装 —— 它的工具、提示词与能力。复制一份既有预设改成自己的，或用「创造模式」让 Agent 帮你创建。',
   builtIn: '内置',

@@ -152,8 +152,9 @@ export class AgentPresetSeatController {
     const staged = this.staged
     const session = this.currentSession()
     if (staged === undefined || session === undefined) return
-    // A started session's history was produced under its own composition; the
-    // host refuses the swap, so the stage is no longer meaningful.
+    // This chip stages only for a session that has not started; a started
+    // session's history was produced under its own composition and the stage
+    // is no longer meaningful (idle switches belong to agentPreset.select).
     if (!session.blank || session.agentPreset === staged) {
       this.staged = undefined
       return

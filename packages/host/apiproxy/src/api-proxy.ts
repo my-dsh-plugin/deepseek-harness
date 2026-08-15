@@ -934,10 +934,11 @@ async function catalogChild(
 /**
  * The requested preset differs from the one this session already runs.
  *
- * A session's composition is fixed at creation: its history was produced under
- * that preset's tools, so adopting the identity under a different one would
- * replay tool calls the rebuilt agent cannot make. Naming a different preset
- * is therefore a caller error rather than a switch.
+ * A session's creation-time preset is a creation fact: its history was produced
+ * under that preset's tools, so adopting the identity under a different one
+ * would replay tool calls the rebuilt agent cannot make. A later switch is a
+ * separate `agent-preset/selected` log event, not an adoption. Naming a
+ * different preset here is therefore a caller error rather than a switch.
  */
 /** The roster is absent: this deployment composes no agent presets at all. */
 function noRoster(agentPreset: string): RpcError {
@@ -3013,9 +3014,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         })
       },
 
-      // Recomposing is limited to a blank session because a started
-      // conversation's history was produced under its preset's tools; the
-      // agent and the session survive, only the composition is swapped.
+      // Recomposing swaps the live composition; the agent and the session
+      // survive, only the composition changes. A running turn is refused —
+      // the mode-switcher UI switches only once the model finished answering
+      // — because a mid-turn swap would change the tool schemas the running
+      // request was assembled against. History produced under the previous
+      // composition is the caller's trade-off to own.
       async select(request) {
         const { sessionId, agentPreset } = request.payload
         const presets = ctx.get('agentPresets')
@@ -3031,11 +3035,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const { agent } = found
         const swap = async (): Promise<RpcResponse<{ agentPreset: string }>> => {
           // Re-read inside the queue: an earlier switch may have run, and a
-          // conversation may have started, since this request arrived.
-          if (!sessionBlank(agent.session)) {
+          // turn may have started, since this request arrived.
+          if (agent.status === 'running') {
             return err(request, {
               code: 'agent-preset-locked',
-              message: `session "${sessionId}" has already started; its agent preset is fixed`,
+              message: `session "${sessionId}" is running a turn; its agent preset is fixed until the turn ends`,
               details: { sessionId, agentPreset },
             })
           }

@@ -437,8 +437,8 @@ export class AgentPresets extends Service {
   /**
    * Re-link one agent to a different preset's standing composition.
    *
-   * Only valid while the agent has produced nothing: swapping tools mid
-   * conversation would leave logged tool calls the new composition cannot
+   * A caller that allows a mid-conversation switch deliberately accepts the
+   * cost: swapping tools leaves logged tool calls the new composition cannot
    * make. The CALLER owns that check — this method does not read session
    * history.
    *

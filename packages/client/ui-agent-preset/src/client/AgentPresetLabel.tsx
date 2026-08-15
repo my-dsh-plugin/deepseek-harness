@@ -1,11 +1,13 @@
 /**
  * The session header's agent-preset label.
  *
- * Read-only by construction: a session's composition is fixed once its
- * conversation starts, and a header is only worth reading after that. Offering
- * a control here would promise a switch the host refuses; naming what the
- * session runs is the honest affordance, and the choice itself lives on the
- * new-session screen ({@link AgentPresetSeat}).
+ * Read-only in the shipped UI: the label names what the session runs; it is
+ * not built to offer a switch. A session that has started can still be
+ * recomposed while idle through `agentPreset.select` — the
+ * `dsh-agent-mode-switcher` plugin replaces this cell with a live switcher
+ * where desired. Naming what the session runs is the honest affordance for
+ * the shipped surface, and the new-session choice lives on the new-session
+ * screen ({@link AgentPresetSeat}).
  */
 
 import { useEffect } from 'react'

@@ -1,10 +1,9 @@
 /**
  * Which preset a session ran is a question about its LOG, not its header: the
- * header records the creation-time choice, and a switch made during the blank
- * window is an event. Every reconstruction — the list row, the header label,
- * resume, fork — goes through this resolver, so a resolver that read the header
- * alone would rebuild a switched session under a composition its own history
- * contradicts.
+ * header records the creation-time choice, and any later switch is an event.
+ * Every reconstruction — the list row, the header label, resume, fork — goes
+ * through this resolver, so a resolver that read the header alone would
+ * rebuild a switched session under a composition its own history contradicts.
  */
 
 import { describe, expect, it } from 'vitest'

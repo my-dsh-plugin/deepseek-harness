@@ -6,7 +6,7 @@ The agent-preset surfaces: a General-settings row choosing which [preset](../../
 
 ## Why it is a new-session preference
 
-A session's preset is fixed when the session is created — the host refuses to adopt an existing session under a different one, because that session's history was produced under the first preset's tools. So this row cannot be a live switch, and it says so: changing it applies to sessions started afterwards while running sessions keep the composition they began with.
+A session's creation-time preset is a creation fact — the host refuses to adopt an existing session under a different one, because that session's history was produced under the first preset's tools. So this row cannot be a live switch, and it says so: changing it applies to sessions started afterwards while running sessions keep the composition they began with. (A started session can still be switched while idle through `agentPreset.select`; that is the `dsh-agent-mode-switcher` plugin's job, not this preference row.)
 
 ## The new-session chip
 
@@ -14,11 +14,11 @@ A second surface, beside the workspace picker on the new-session screen. It sits
 
 The chip opens on the deployment default and its pick is *staged* — the screen precedes the session it would apply to. The stage reaches a session when one becomes current and is still blank, which covers both the session the workspace connect created and the blank one it reused; riding along on `sessions.create` would miss the second. It is spent on first use, so the next new session opens on the default again, exactly like the workspace picker beside it.
 
-A session that has started is refused rather than queued: the host answers `agent-preset-locked`, and the stage is dropped instead of waiting for a session that will never accept it.
+A session that has started is refused rather than queued: this chip only stages for a session that has not started, and the stage is dropped instead of waiting for a session that will never accept it. (The host itself answers `agent-preset-locked` only while a turn is running.)
 
 ## The session-header label
 
-A third surface, beside the session title: the preset THIS session runs, as static chrome. A control there would promise a switch the host refuses outright. It reads the preset from the session's own summary and resolves the display name against the same roster the General row reads. Forwarded `agent-preset/selected` owner events fold committed blank-session switches into that shared summary in every tab; the initiating tab may already have applied the RPC echo, and the merge is idempotent.
+A third surface, beside the session title: the preset THIS session runs, as static chrome in the shipped UI. A control there would promise a switch the shipped label is not built to make; the `dsh-agent-mode-switcher` plugin replaces this cell with a live switcher where desired. It reads the preset from the session's own summary and resolves the display name against the same roster the General row reads. Forwarded `agent-preset/selected` owner events fold committed switches into that shared summary in every tab; the initiating tab may already have applied the RPC echo, and the merge is idempotent.
 
 ## What it reads and writes
 

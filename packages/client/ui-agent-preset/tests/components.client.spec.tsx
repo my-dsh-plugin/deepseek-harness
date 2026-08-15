@@ -370,7 +370,7 @@ describe('the session-header label', () => {
     const { load } = renderLabel({ blank: false, agentPreset: 'standard' })
 
     await waitFor(() => { expect(load).toHaveBeenCalledTimes(1) })
-    // A control here would promise a switch the host refuses outright.
+    // A control here would promise a switch the shipped label is not built to make.
     expect(screen.queryByRole('button')).toBeNull()
     expect(screen.getByTitle(en.presetStandardDescription).textContent).toBe(en.presetStandardName)
   })

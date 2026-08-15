@@ -40,15 +40,15 @@ subagent 的子 agent 通过 `composeFrom()` 加入其父方的常驻组装，�
 
 ### 会话实际运行的是哪个 preset
 
-创建头部记录的是会话**以什么开始**，`resolveSessionPreset(session)` 给出的才是它**实际运行的**。空白会话一旦切换过，两者就不同，因此所有重建路径——选择器读取的摘要、resume、fork——都走解析，而非直接读头部。
+创建头部记录的是会话**以什么开始**，`resolveSessionPreset(session)` 给出的才是它**实际运行的**。会话一旦在创建后切换过，两者就不同，因此所有重建路径——选择器读取的摘要、resume、fork——都走解析，而非直接读头部。
 
-头部保持冻结，因为它是创建期事实。切换以 `agent-preset/selected` 会话事件记录，在替换提交之后追加；这正是 model-visible ⟺ logged 规则的要求：preset 决定模型看到的工具 schema 与提示词段落，因此必须能从日志重建。服务会把这项已提交事实重新发为不带 scope 的 cordis 事件 `agent-preset/selected(sessionId, agentPreset)`，其声明位于 client-safe 的 `./types` 出口，使远端消费方无需导入 Host 运行时类型即可让会话派生状态失效。只读头部会让切换过的会话按创建时的组装重建，从而重放新工具集无法执行的历史——这正是「仅空白可切」那道锁要防的危险。
+头部保持冻结，因为它是创建期事实。切换以 `agent-preset/selected` 会话事件记录，在替换提交之后追加；这正是 model-visible ⟺ logged 规则的要求：preset 决定模型看到的工具 schema 与提示词段落，因此必须能从日志重建。服务会把这项已提交事实重新发为不带 scope 的 cordis 事件 `agent-preset/selected(sessionId, agentPreset)`，其声明位于 client-safe 的 `./types` 出口，使远端消费方无需导入 Host 运行时类型即可让会话派生状态失效。只读头部会让切换过的会话按创建时的组装重建，从而重放新工具集无法执行的历史。
 
-### 切换空白 agent
+### 切换 agent
 
 `recompose()` 先卸载已装入的子树、再装入新的，因为两份组装无法共存——它们会把相同的工具名注册进同一个层。挂载失败会恢复先前的组装，而不是让 agent 一无所有；未知 id 则在任何东西被拆除之前就被拒绝。
 
-"仅限尚未产出任何内容的 agent"是一条产品规则而非机制约束：在对话进行中调换工具，会留下新组装无法执行的、已被记录的工具调用。该规则由网关在传输层执行（[`dsh-apiproxy`](../../host/apiproxy/README.zh.md) 返回 `agent-preset-locked`），因为会话历史在那里才拿得到。
+"仅限空闲 agent"是一条产品规则而非机制约束：在回合进行中调换工具，会改变正在运行的请求所依据的工具 schema；而先前组装产出的历史可能提到新组装无法调用的工具。回合运行中的限制由网关在传输层执行（[`dsh-apiproxy`](../../host/apiproxy/README.md) 在 agent 运行时返回 `agent-preset-locked`）；已开始对话的切换所伴随的历史取舍则由调用方承担——`dsh-agent-mode-switcher` 插件提供的正是这个能力。
 
 ## 创作
 
@@ -145,7 +145,7 @@ Indirectly, through the plugins a standing composition registers, which own ever
 ## 已知限制与暂缓事项
 
 - **位于可写根目录之外的 preset 可被发现却无法删除** —— `remove()` 拒绝任何不在**第一个** `user` 根目录下的 preset，因此一个既配置了自有可写根、又保留 `includeUserRoot` 的部署，会列出并挂载 harness home 下的 preset，却对每次删除回答「它不在可写 preset 根目录之下」。roster 按设计只有一个可写根；只想要自有根的部署应设置 `includeUserRoot: false`。
-- **会话一旦产出内容便无法更换 preset** —— `recompose` 把**空白**会话的父作用域重链到另一个常驻挂载，且仅限空白会话：切换已运行过的组装会抽走模型已调用的工具。更改默认值只影响此后创建的会话。
+- **会话运行回合期间无法更换 preset** —— `recompose` 把**空闲**会话的父作用域重链到另一个常驻挂载；回合进行中的切换会改变正在运行的请求所依据的工具 schema。已开始对话的切换是被允许的，先前组装产出的历史作为调用方的取舍保留。
 - **代际只以组装文件为键** —— stamp 检查只察觉 `agent.cordis.yml` 的变化，察觉不到旁边 skill 文件或资产的编辑；那些编辑要等组装文件本身变动或进程重启才达到新会话。
 - **被替代的代际永不回收** —— 已加入的会话保持其运行所在的代际，而名单没有加入计数可以判断最后一个何时离开，因此整棵子树一直挂到进程结束。代价按代际计而非按会话计，但并非为零：`dsh-skill-filesystem` 默认监听自己的根目录，因此每一轮「编辑后建会话」都会新增一套活的 watcher。上限取决于组装被编辑的频率——而设置页的编写流程把这件事从「每次部署」变成了「每次保存」。要回收就需要给常驻挂载加上已加入 agent 的计数；见 `ensureStanding` 处的 `TODO`。
 - **副本从不被实际挂载以校验** —— 它与来源逐字节相同，因此磁盘上已坏的来源会产出与来源同样损坏的副本；发现过程的健康检查会在下一次读取名单时把两行都标出来，而不是把失败推迟到会话启动。
