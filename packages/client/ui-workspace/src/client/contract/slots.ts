@@ -98,6 +98,11 @@ export type WorkspaceBrowserInjected = {
    * Workspace, then the recent Workspace, or clear into the New Session view.
    */
   startSession: (workspaceId?: WorkspaceId) => void
+  /**
+   * Start a New Session outside every Workspace (the ungrouped bucket):
+   * reuse-or-create a loose blank session and open it.
+   */
+  startUngroupedSession: () => void
   /** Open a real Session. */
   open: (sessionId: SessionId) => void
   /**

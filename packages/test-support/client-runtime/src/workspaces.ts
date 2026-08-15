@@ -71,6 +71,14 @@ export class TestWorkspaces implements IWorkspaces {
   }
 
   /**
+   * Ungrouped New Session flow (recorded; stubbed behavior runs when installed).
+   */
+  startUngroupedSession(): void {
+    this.calls.push({ method: 'startUngroupedSession', args: [] })
+    this.stubs.get('startUngroupedSession')?.()
+  }
+
+  /**
    * Create a Workspace (recorded). The default echoes a view derived from
    * the input; stub for failure or list-coupled flows.
    * @param input - the Host create payload.

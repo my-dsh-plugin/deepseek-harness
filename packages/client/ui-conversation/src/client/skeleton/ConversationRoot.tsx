@@ -87,15 +87,19 @@ export function ConversationRoot({
   //   3. the blank session's workspace is in the list → its title;
   //   4. list still loading → cwd folder name bridges so the title does not
   //      flash on refresh (empty cwd → placeholder);
-  //   5. list ready but no owning workspace (deleted from the sidebar) →
-  //      placeholder, never the deleted folder's name via cwd.
+  //   5. list ready but no owning workspace (ungrouped: deleted from the
+  //      sidebar, or started outside every Workspace) → the ungrouped bucket
+  //      label, never the dead folder's name via cwd. The bucket label is
+  //      cwd-independent, so the composer stays usable for such sessions.
   const chipTitle = pendingWorkspace?.title
     ?? (sessionId === undefined
       ? undefined
       : sessionWorkspace?.title
-        ?? (workspaces.phase === 'ready' || cwd === undefined || cwd === ''
-          ? undefined
-          : workspaceLabel(cwd)))
+        ?? (workspaces.phase === 'ready'
+          ? t('hero.ungrouped')
+          : cwd === undefined || cwd === ''
+            ? undefined
+            : workspaceLabel(cwd)))
 
   const heroWorkspaceRow = (
     <div className={css.heroWorkspaceRow}>

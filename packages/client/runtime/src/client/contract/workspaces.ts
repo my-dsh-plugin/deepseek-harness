@@ -29,6 +29,12 @@ export interface IWorkspaces {
    */
   startSession(workspaceId?: WorkspaceId): void
   /**
+   * The ungrouped New Session flow: reuse-or-create a loose blank Session
+   * outside every Workspace and open it; failures surface on the session
+   * list state.
+   */
+  startUngroupedSession(): void
+  /**
    * Register an existing path as a Workspace.
    * @param input - the Host create payload.
    * @returns the created or idempotently resolved Workspace.

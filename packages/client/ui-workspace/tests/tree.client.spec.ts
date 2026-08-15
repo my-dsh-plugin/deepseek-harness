@@ -36,7 +36,7 @@ describe('deriveGroups', () => {
     const sessions = list(summary('newer', 20), summary('older', 10))
     const workspaces = [workspace('first', ['older', 'newer']), workspace('empty', [])]
     const groups = deriveGroups(sessions, workspaces, noArchive, view(['first']))
-    expect(groups.map(group => group.key)).toEqual(['first', 'empty'])
+    expect(groups.map(group => group.key)).toEqual(['first', 'empty', UNGROUPED_KEY])
     expect(groups[0]!.sessions.map(session => session.id)).toEqual([sid('older'), sid('newer')])
   })
 
@@ -53,6 +53,18 @@ describe('deriveGroups', () => {
     const groups = deriveGroups(sessions, [workspace('first', ['owned'])], noArchive, view([UNGROUPED_KEY]))
     expect(groups.map(group => group.key)).toEqual(['first', UNGROUPED_KEY])
     expect(groups[1]!.sessions.map(session => session.id)).toEqual([sid('loose')])
+  })
+
+  it('always presents the Ungrouped bucket as the trailing group, empty or not', () => {
+    const owned = summary('owned', 1)
+    const groups = deriveGroups(list(owned), [workspace('first', ['owned'])], noArchive, view())
+    expect(groups.map(group => group.key)).toEqual(['first', UNGROUPED_KEY])
+    expect(groups[1]).toMatchObject({
+      key: UNGROUPED_KEY, workspaceId: undefined, cwd: undefined, createdAt: undefined,
+      label: UNGROUPED_LABEL, sessionCount: 0, expanded: false, containsCurrent: false, sessions: [],
+    })
+    // The bucket trails even when no Workspace exists at all.
+    expect(deriveGroups(list(), [], noArchive, view()).map(group => group.key)).toEqual([UNGROUPED_KEY])
   })
 
   it('applies stored Ungrouped order and appends new loose Sessions by recency', () => {
@@ -87,9 +99,11 @@ describe('deriveGroups', () => {
     expect(blankNode.blank).toBe(true)
     expect(groups[0]!.sessions.find(session => session.id === real.id)!.blank).toBe(false)
     expect(groups[0]!.sessionCount).toBe(2)
-    // A non-current blank stray never surfaces an Ungrouped bucket either.
+    // A non-current blank stray never renders a row; the bucket stays present
+    // as the empty trailing group.
     const strayGroups = deriveGroups(list({ ...summary('stray', 2), blank: true }), [workspace('first', [])], noArchive, view())
-    expect(strayGroups.map(group => group.key)).toEqual(['first'])
+    expect(strayGroups.map(group => group.key)).toEqual(['first', UNGROUPED_KEY])
+    expect(strayGroups[1]!.sessions).toEqual([])
   })
 
   it('projects the completion reminder into session and search rows (absent = false)', () => {
@@ -187,11 +201,12 @@ describe('deriveGroups', () => {
     const groups = deriveGroups(
       sessions, [workspace('first', ['kept', 'gone'])], archived('gone', 'loose-gone'), view(['first', UNGROUPED_KEY]),
     )
-    // The archived member drops from its group AND the archived stray never
-    // surfaces an Ungrouped bucket; counts follow the visible rows.
-    expect(groups.map(group => group.key)).toEqual(['first'])
+    // The archived member drops from its group; the ungrouped bucket stays as
+    // the empty trailing group; counts follow the visible rows.
+    expect(groups.map(group => group.key)).toEqual(['first', UNGROUPED_KEY])
     expect(groups[0]!.sessions.map(node => node.id)).toEqual([kept.id])
     expect(groups[0]!.sessionCount).toBe(1)
+    expect(groups[1]!.sessions).toEqual([])
   })
 
   it('marks selected Workspace and Ungrouped sessions without relying on an Intent', () => {

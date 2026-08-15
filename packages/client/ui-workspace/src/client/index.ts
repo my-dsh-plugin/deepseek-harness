@@ -74,6 +74,8 @@ export function apply(ctx: ClientContext): void {
     // Explicit group actions keep their target; unscoped New Session inherits
     // the current Session Workspace before the recent-Workspace fallback.
     startSession: (workspaceId) => { ctx.workspaces.startSession(workspaceId) },
+    // The ungrouped bucket's ＋ starts a session outside every Workspace.
+    startUngroupedSession: () => { ctx.workspaces.startUngroupedSession() },
     open: (sessionId) => { ctx.sessions.open(sessionId) },
     searchSessions,
     searchResultLimit: ctx.sessions.searchResultLimit,

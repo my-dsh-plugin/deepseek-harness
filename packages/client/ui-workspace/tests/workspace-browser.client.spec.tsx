@@ -68,6 +68,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     useStore: bindSnapshotSelector(store),
     actions: store.actions,
     startSession: vi.fn(),
+    startUngroupedSession: vi.fn(),
     open: vi.fn(),
     searchSessions: vi.fn(async () => ({ items: [], hasMore: false })),
     searchResultLimit: 20,
@@ -409,17 +410,35 @@ describe('WorkspaceBrowser', () => {
     expect(startSession).toHaveBeenCalledWith(wid('alpha'))
   })
 
-  it('auto-expands the Ungrouped bucket for a loose current session; its header has no menu and its ＋ is inert', () => {
+  it('auto-expands the Ungrouped bucket for a loose current session; its header has no menu and its ＋ starts an ungrouped session', () => {
     const startSession = vi.fn()
+    const startUngroupedSession = vi.fn()
     mount({
       useSessions: hook(sessionState([summary('loose', 1)], { current: sid('loose') })),
       useWorkspaces: hook(workspaceState([workspace('alpha', [])])),
       startSession,
+      startUngroupedSession,
     })
     // The loose session's group is UNGROUPED_KEY: expanded by the effect.
     expect(screen.getByText('loose')).toBeTruthy()
     expect(screen.queryByRole('button', { name: '工作区“未分组”的操作' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '在“未分组”中新建会话' }))
+    expect(startUngroupedSession).toHaveBeenCalledOnce()
+    expect(startSession).not.toHaveBeenCalled()
+  })
+
+  it('always shows the Ungrouped bucket header and its ＋ starts an ungrouped session', () => {
+    const startSession = vi.fn()
+    const startUngroupedSession = vi.fn()
+    mount({
+      useSessions: hook(sessionState([])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', [])])),
+      startSession,
+      startUngroupedSession,
+    })
+    expect(screen.getByText('未分组')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '在“未分组”中新建会话' }))
+    expect(startUngroupedSession).toHaveBeenCalledOnce()
     expect(startSession).not.toHaveBeenCalled()
   })
 
@@ -750,11 +769,14 @@ describe('WorkspaceBrowser', () => {
     }
   })
 
-  it('shows the no-sessions empty state in both modes and resolves an empty search', async () => {
+  it('shows the no-sessions empty state in flat mode and resolves an empty search', async () => {
     vi.useFakeTimers()
     try {
       const b = mount()
-      expect(screen.getByText('暂无会话')).toBeTruthy()
+      // The grouped tree always presents the Ungrouped bucket instead of the
+      // empty state.
+      expect(screen.queryByText('暂无会话')).toBeNull()
+      expect(screen.getByText('未分组')).toBeTruthy()
       b.store.actions.setGroupBy('flat')
       rerender(b, {})
       expect(screen.getByText('暂无会话')).toBeTruthy()

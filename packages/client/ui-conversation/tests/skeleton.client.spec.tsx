@@ -101,6 +101,8 @@ function mount(
     nestedSubagent?: boolean
     /** A composer block another plugin raised for this session. */
     composerBlock?: { reason: string }
+    /** Override the session-maybe seat's sessionId (undefined = no session). */
+    sessionId?: SessionId | undefined
     /** Mutable view ledger used by registration-order regressions. */
     viewTabs?: ViewTab[]
   } = {},
@@ -255,7 +257,7 @@ function mount(
       : (opts?.fallback ?? null)
   )) as ConversationRootProps['renderSlotChain']
   const props: ConversationRootProps = {
-    sessionId: SID,
+    sessionId: Object.hasOwn(options, 'sessionId') ? options.sessionId : SID,
     SessionProvider: ({ children }) => children(SID),
     useSession,
     useSessions: bindSnapshotSelector(sessions),
@@ -317,12 +319,18 @@ describe('ConversationRoot resident composer', () => {
   })
 
   it('lets the no-workspace posture win over a block', () => {
-    // Picking a workspace is the earlier prerequisite; naming a model first
-    // would send the user somewhere they cannot act yet.
-    const b = mount(conversationSnapshot({ composerPhase: 'blank' }), [], undefined, {
-      summaryBlank: true,
-      composerBlock: { reason: 'select a model first' },
-    })
+    // Without a session there is no workspace to act in yet; naming a model
+    // first would send the user somewhere they cannot act. (An ungrouped
+    // session is NOT this posture: it chats from the ungrouped bucket.)
+    const b = mount(
+      conversationSnapshot({ composerPhase: 'blank' }),
+      [], undefined,
+      {
+        sessionId: undefined,
+        summaryBlank: true,
+        composerBlock: { reason: 'select a model first' },
+      },
+    )
     const box = b.view.getByRole('textbox') as HTMLTextAreaElement
     expect(box.disabled).toBe(false)
     expect(box.readOnly).toBe(true)
@@ -533,6 +541,20 @@ describe('ConversationRoot resident composer', () => {
     // The agent-preset chip sits in the same row, for the same reason: both
     // choices are only open before the first message.
     expect(b.slotCalls).toContain('conversation.hero.agentPreset')
+  })
+
+  it('an ungrouped blank session keeps the composer usable with the bucket label', () => {
+    const b = mount(conversationSnapshot({ composerPhase: 'blank', blank: true }), [])
+    // No owning Workspace and the list is ready: the chip carries the
+    // ungrouped bucket label instead of the "choose a workspace" placeholder,
+    // so the hero textarea stays live.
+    expect(b.view.getByText('未分组')).toBeTruthy()
+    const box = b.view.getByRole('textbox') as HTMLTextAreaElement
+    expect(box.readOnly).toBe(false)
+    expect(box.placeholder).toBe('描述你想要构建的内容')
+    // The chip still opens the picker: the session can move into a Workspace.
+    fireEvent.click(b.view.getByRole('button', { name: '选择工作区' }))
+    expect(b.slotCalls).toContain('conversation.hero.workspace')
   })
 
   it('prompt failure renders the promptError strip (ordinary failure, no transaction UI)', () => {

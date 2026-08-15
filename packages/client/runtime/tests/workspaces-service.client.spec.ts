@@ -442,6 +442,95 @@ describe('WorkspaceRuntime', () => {
     expect(clear).toHaveBeenCalledOnce()
   })
 
+  it('starts an ungrouped session: reuses a loose blank, else creates without a Workspace, and opens it', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const sessions = new SessionRuntime(ctx, api, fakeRemote())
+    const workspaces = new WorkspaceRuntime(ctx, api, sessions)
+    api.onWorkspaceList = () => Promise.resolve(ok({
+      items: [workspace('home', [sid('owned')])] as never[],
+    }))
+    api.onList = () => Promise.resolve(ok({ items: [
+      { sessionId: sid('loose-blank'), updatedAt: 1, running: false, blank: true },
+      { sessionId: sid('owned'), updatedAt: 2, running: false, blank: false },
+    ] as never[] }))
+    await Promise.all([workspaces.refresh(), sessions.refresh()])
+    await Promise.resolve()
+    const open = vi.spyOn(sessions, 'open')
+
+    // An existing loose blank (outside every Workspace account) is reused
+    // without a create call.
+    workspaces.startUngroupedSession()
+    await Promise.resolve()
+    expect(open).toHaveBeenCalledWith(sid('loose-blank'))
+    expect(api.callsOf('session.create')).toEqual([])
+
+    // Without a loose blank, a fresh session is created without a Workspace
+    // account and opened.
+    api.onList = () => Promise.resolve(ok({ items: [
+      { sessionId: sid('owned'), updatedAt: 2, running: false, blank: false },
+    ] as never[] }))
+    await sessions.refresh()
+    workspaces.startUngroupedSession()
+    await vi.waitFor(() => {
+      expect(api.callsOf('session.create')).toEqual([{}])
+      expect(open).toHaveBeenLastCalledWith(sid('fk-new'))
+    })
+  })
+
+  it('never reuses an archived loose blank', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const sessions = new SessionRuntime(ctx, api, fakeRemote())
+    const workspaces = new WorkspaceRuntime(ctx, api, sessions)
+    api.onWorkspaceList = () => Promise.resolve(ok({
+      items: [],
+      archivedSessionIds: [sid('archived-blank')],
+    } as never))
+    api.onList = () => Promise.resolve(ok({ items: [
+      { sessionId: sid('archived-blank'), updatedAt: 1, running: false, blank: true },
+    ] as never[] }))
+    await Promise.all([workspaces.refresh(), sessions.refresh()])
+    await Promise.resolve()
+    api.onCreate = () => Promise.resolve(ok({ sessionId: sid('fresh') }))
+    const open = vi.spyOn(sessions, 'open')
+    workspaces.startUngroupedSession()
+    await vi.waitFor(() => {
+      expect(api.callsOf('session.create')).toEqual([{}])
+      expect(open).toHaveBeenCalledWith(sid('fresh'))
+    })
+    // The created blank is now reusable: a second click opens it without
+    // minting another hidden blank.
+    workspaces.startUngroupedSession()
+    await vi.waitFor(() => {
+      expect(open).toHaveBeenLastCalledWith(sid('fresh'))
+    })
+    expect(api.callsOf('session.create')).toEqual([{}])
+  })
+
+  it('logs a failed ungrouped create and keeps the current view', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const sessions = new SessionRuntime(ctx, api, fakeRemote())
+    const workspaces = new WorkspaceRuntime(ctx, api, sessions)
+    api.onWorkspaceList = () => Promise.resolve(ok({ items: [] }))
+    api.onList = () => Promise.resolve(ok({ items: [] }))
+    await Promise.all([workspaces.refresh(), sessions.refresh()])
+    await Promise.resolve()
+    api.onCreate = () => Promise.reject(new Error('create transport'))
+    const open = vi.spyOn(sessions, 'open')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      workspaces.startUngroupedSession()
+      await vi.waitFor(() => {
+        expect(warn).toHaveBeenCalledWith('ungrouped session create failed:', expect.any(Error))
+      })
+      expect(open).not.toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
   it('archives a session, projects the set from the response, list, and frame, and clears only the current one', async () => {
     const ctx = new Context()
     const api = new FakeApiClient()

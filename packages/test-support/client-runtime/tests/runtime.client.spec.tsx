@@ -365,15 +365,21 @@ describe('workspaces', () => {
     expect(view.container.textContent).toContain('ws:pending')
 
     runtime.workspaces.startSession('w1' as WorkspaceId)
+    runtime.workspaces.startUngroupedSession()
     await expect(runtime.workspaces.connectWorkspace('w2' as WorkspaceId)).resolves.toBe('session-of-w2')
     expect(runtime.workspaces.calls).toEqual([
       { method: 'startSession', args: ['w1'] },
+      { method: 'startUngroupedSession', args: [] },
       { method: 'connectWorkspace', args: ['w2'] },
     ])
     const stub = vi.fn(() => Promise.resolve('other' as never))
     runtime.workspaces.stub('connectWorkspace', stub)
     await expect(runtime.workspaces.connectWorkspace('w3' as WorkspaceId)).resolves.toBe('other')
     expect(stub).toHaveBeenCalledOnce()
+    const ungroupedStub = vi.fn()
+    runtime.workspaces.stub('startUngroupedSession', ungroupedStub)
+    runtime.workspaces.startUngroupedSession()
+    expect(ungroupedStub).toHaveBeenCalledOnce()
     await runtime.dispose()
   })
 

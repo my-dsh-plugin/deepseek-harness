@@ -17,6 +17,9 @@
     - img
     - text: workspace
   - treeitem "New Session" [selected]
+  - treeitem "Ungrouped":
+    - img
+    - text: Ungrouped
 - button "Settings":
   - img
   - text: Settings

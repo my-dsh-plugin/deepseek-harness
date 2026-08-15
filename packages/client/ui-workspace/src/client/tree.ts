@@ -1,7 +1,8 @@
 /**
  * Derives the workspace browser tree from Host Workspace order and membership.
- * Unassigned Sessions trail under Ungrouped; only the selected blank Session
- * remains visible.
+ * Unassigned Sessions trail under Ungrouped, which is always present as the
+ * tree's trailing group so a New Session can be started outside every
+ * Workspace; only the selected blank Session remains visible.
  */
 import {
   indexSubagentDescendants, type PendingInteractionStatus, type SessionId, type SessionListState,
@@ -169,7 +170,8 @@ function orderedUngrouped(members: readonly SessionSummary[], stored: readonly s
  * Group Sessions by Host Workspace: one group per entity in stable Host
  * order, with members resolved from sessionIds in their stored order. Sessions
  * outside every Workspace trail in the browser-local Ungrouped order, which
- * falls back to recency before that order is initialized.
+ * falls back to recency before that order is initialized. The Ungrouped
+ * bucket is always present as the trailing group.
  */
 function groupByWorkspace(
   list: SessionListState,
@@ -197,17 +199,18 @@ function groupByWorkspace(
     .map(id => list.byId[id])
     .filter((s): s is SessionSummary =>
       s !== undefined && !accounted.has(s.id) && sessionVisible(s, list.current, archived))
-  if (stray.length > 0) {
-    groups.push(buildGroup(
-      UNGROUPED_KEY,
-      undefined,
-      undefined,
-      undefined,
-      UNGROUPED_LABEL,
-      ungroupedOrder === undefined ? stray : orderedUngrouped(stray, ungroupedOrder),
-      ungroupedOrder === undefined ? 'recency' : 'account',
-    ))
-  }
+  // The ungrouped bucket is always present as the trailing group: it is the
+  // only surface that can start a Session outside every Workspace, so it
+  // must not withdraw when it happens to be empty.
+  groups.push(buildGroup(
+    UNGROUPED_KEY,
+    undefined,
+    undefined,
+    undefined,
+    UNGROUPED_LABEL,
+    ungroupedOrder === undefined ? stray : orderedUngrouped(stray, ungroupedOrder),
+    ungroupedOrder === undefined ? 'recency' : 'account',
+  ))
   return groups
 }
 
@@ -230,11 +233,11 @@ function sessionNode(
 /**
  * Derive the workspace browser groups with every session as a top-level row.
  *
- * Every group shows; sessions populate under expanded groups in the selected
- * local order. Blank sessions are excluded except for the selected
- * provisional New Session row; archived sessions are excluded everywhere.
- * Content search lives outside this derivation
- * (see {@link deriveSearchResults}).
+ * Every group shows — the ungrouped bucket always among them — with sessions
+ * populating under expanded groups in the selected local order. Blank
+ * sessions are excluded except for the selected provisional New Session row;
+ * archived sessions are excluded everywhere. Content search lives outside
+ * this derivation (see {@link deriveSearchResults}).
  * @param list - sessions list snapshot (`current` feeds containsCurrent).
  * @param workspaces - real workspaces in stable Host order.
  * @param archivedSessionIds - registry-global archive set.

@@ -215,7 +215,7 @@ function workspaceGroupHalf(e: { clientY: number; currentTarget: HTMLElement }):
 
 type SessionTreeProps = Pick<
   WorkspaceBrowserProps,
-  'useSessions' | 'startSession' | 'open' | 'forkSession'
+  'useSessions' | 'startSession' | 'startUngroupedSession' | 'open' | 'forkSession'
   | 'insertWorkspaceBefore' | 'insertSessionBefore' | 't'
 > & {
   /** Host account home for POSIX hover-path abbreviation. */
@@ -249,7 +249,7 @@ type SessionTreeProps = Pick<
 
 /** The scrolling session tree; unmounting drops the sessions subscription and expand-all state. */
 function SessionTree({
-  useSessions, startSession, open, forkSession, workspaces, archivedSessionIds,
+  useSessions, startSession, startUngroupedSession, open, forkSession, workspaces, archivedSessionIds,
   onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive,
   insertWorkspaceBefore, insertSessionBefore, orderBy,
   groupExpansion, setGroupExpanded,
@@ -390,9 +390,6 @@ function SessionTree({
         role="tree"
         aria-label={t('section.sessions')}
       >
-        {groups.length === 0 && (
-          <div className={css.empty}>{t('empty.none')}</div>
-        )}
         {groups.map((group) => {
           const workspaceId = group.workspaceId
           const workspaceMarker = workspaceId !== undefined && workspaceDrag?.over?.id === workspaceId
@@ -461,10 +458,9 @@ function SessionTree({
                   setGroupExpanded(group.key, !group.expanded)
                 }}
                 onCreate={() => {
-                  if (group.workspaceId !== undefined) {
-                    setGroupExpanded(group.key, true)
-                    startSession(group.workspaceId)
-                  }
+                  setGroupExpanded(group.key, true)
+                  if (group.workspaceId !== undefined) startSession(group.workspaceId)
+                  else startUngroupedSession()
                 }}
                 drag={workspaceDragProps}
                 actions={group.workspaceId === undefined
@@ -749,6 +745,7 @@ export function WorkspaceBrowser({
   useStore,
   actions,
   startSession,
+  startUngroupedSession,
   open,
   renameSession,
   forkSession,
@@ -1183,6 +1180,7 @@ export function WorkspaceBrowser({
                 setSessionOrder={actions.setSessionOrder}
                 archivedSessionIds={archivedSessionIds}
                 startSession={startSession}
+                startUngroupedSession={startUngroupedSession}
                 open={open}
                 insertWorkspaceBefore={insertWorkspaceBefore}
                 insertSessionBefore={insertSessionBefore}

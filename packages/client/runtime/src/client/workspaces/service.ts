@@ -192,6 +192,30 @@ export class WorkspaceRuntime implements IWorkspaces {
   }
 
   /**
+   * The ungrouped New Session action behind the ungrouped bucket's ＋:
+   * reuse the existing loose blank Session (a blank outside every Workspace
+   * and not archived), else create a fresh one without a Workspace account,
+   * then open it. Create failures are non-fatal (console diagnostics; the
+   * current view stays usable), the same posture as {@link startSession}.
+   */
+  startUngroupedSession(): void {
+    const workspace = this.list.getSnapshot()
+    const sessions = this.sessions.list.getSnapshot()
+    for (const id of sessions.ids) {
+      const summary = sessions.byId[id]
+      if (summary !== undefined && summary.blank && !workspace.archivedSessionIds.includes(id)
+        && !workspace.items.some(item => item.sessionIds.includes(id))) {
+        this.sessions.open(id)
+        return
+      }
+    }
+    void this.sessions.create({}).then(
+      (sessionId) => { this.sessions.open(sessionId) },
+      (reason: unknown) => { console.warn('ungrouped session create failed:', reason) },
+    )
+  }
+
+  /**
    * Register an existing path as a Workspace.
    * @param input - the Host create payload.
    * @returns the created or idempotently resolved Workspace.
