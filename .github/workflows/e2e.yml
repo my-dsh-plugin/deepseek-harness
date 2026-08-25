@@ -28,13 +28,10 @@ name: E2E (real DeepSeek API)
 # Note: scheduled triggers are auto-disabled after 60 days of repo inactivity;
 # push/pull_request/workflow_dispatch act as backstops.
 on:
+  # Fork-local: manual dispatch only — the fork has no DEEPSEEK_API_KEY secret,
+  # so push/PR/schedule runs always fail at preflight. (Upstream keeps push,
+  # pull_request and a nightly schedule; see git history for the original.)
   workflow_dispatch:
-  push:
-    branches: [main, master]
-  pull_request:
-  schedule:
-    # 00:17 UTC nightly = 08:17 Asia/Shanghai — off the top-of-hour cron stampede.
-    - cron: '17 0 * * *'
 
 # Cancel a superseded PR run (it is on a stale commit); never cancel a
 # push/schedule run — it is already producing the post-merge/nightly signal.
