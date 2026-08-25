@@ -48,7 +48,7 @@ subagent 的子 agent 通过 `composeFrom()` 加入其父方的常驻组装，�
 
 `recompose()` 先卸载已装入的子树、再装入新的，因为两份组装无法共存——它们会把相同的工具名注册进同一个层。挂载失败会恢复先前的组装，而不是让 agent 一无所有；未知 id 则在任何东西被拆除之前就被拒绝。
 
-"仅限空闲 agent"是一条产品规则而非机制约束：在回合进行中调换工具，会改变正在运行的请求所依据的工具 schema；而先前组装产出的历史可能提到新组装无法调用的工具。回合运行中的限制由网关在传输层执行（[`dsh-apiproxy`](../../host/apiproxy/README.md) 在 agent 运行时返回 `agent-preset-locked`）；已开始对话的切换所伴随的历史取舍则由调用方承担——`dsh-agent-mode-switcher` 插件提供的正是这个能力。
+"仅限空闲 agent"是一条产品规则而非机制约束：在回合进行中调换工具，会改变正在运行的请求所依据的工具 schema；而先前组装产出的历史可能提到新组装无法调用的工具。回合运行中的限制由网关在传输层执行（[`dsh-apiproxy`](../../host/apiproxy/README.zh.md) 在 agent 运行时返回 `agent-preset-locked`）；已开始对话的切换所伴随的历史取舍则由调用方承担——`dsh-agent-mode-switcher` 插件提供的正是这个能力。
 
 ## 创作
 
