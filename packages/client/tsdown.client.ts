@@ -366,6 +366,22 @@ function workspaceManifest(id: string): WorkspaceManifest {
     manifestCache.set(id, manifest)
     return manifest
   }
+  // Fork-local: out-of-workspace callers (external UI plugins that reuse this
+  // preset from their own checkout, e.g. `clientBundle(name, ...)` in a plugin
+  // built beside the harness clone) declare the manifest at their package
+  // root; tsdown evaluates their config with that root as `process.cwd()`.
+  // Harness-internal builds never reach this path (every package is covered
+  // by the workspace glob above).
+  const callerManifestPath = resolvePath(process.cwd(), 'package.json')
+  if (existsSync(callerManifestPath)) {
+    const manifest = JSON.parse(
+      readFileSync(callerManifestPath, 'utf8'),
+    ) as WorkspaceManifest
+    if (manifest.name === id) {
+      manifestCache.set(id, manifest)
+      return manifest
+    }
+  }
   throw new Error(`tsdown: no packages/*/*/package.json declares the name ${id}`)
 }
 
