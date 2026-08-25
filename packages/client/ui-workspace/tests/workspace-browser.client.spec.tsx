@@ -110,7 +110,9 @@ describe('WorkspaceBrowser', () => {
           version: '0', cwd: '/tmp', attachedSessions: 0, home: '/home/u', canOpenPath: false,
         }),
       })
-      fireEvent.pointerEnter(screen.getByRole('treeitem').parentElement as HTMLElement)
+      // The resident Ungrouped bucket always adds a trailing treeitem row, so
+      // target the real Workspace row by name.
+      fireEvent.pointerEnter(screen.getByRole('treeitem', { name: 'Project' }).parentElement as HTMLElement)
       act(() => { vi.advanceTimersByTime(500) })
       expect(screen.getByText('~/Documents/project')).toBeTruthy()
     } finally {

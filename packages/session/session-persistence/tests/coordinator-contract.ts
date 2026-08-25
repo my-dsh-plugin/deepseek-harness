@@ -1356,7 +1356,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         // A later append on the still-attached session fails loudly, not corrupts.
         await expect(ctx.sessionPersistence.append(session.id, [{
           type: 'step/start', seq: 1, time: 2, data: { turn: 1, step: 1 },
-        } as SessionEvent])).rejects.toThrow(/not found/)
+        }])).rejects.toThrow(/not found/)
       } finally {
         await sessionFiber.dispose()
         await fiber.dispose()
