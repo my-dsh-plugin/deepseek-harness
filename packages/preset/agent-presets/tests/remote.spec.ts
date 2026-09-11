@@ -395,22 +395,36 @@ describe('switching one session\'s composition', () => {
     expect(ctx.agentPresets.composedPreset(agent.ctx)).toBe('standard')
   })
 
-  it('refuses once the conversation has started', async () => {
+  it('refuses while a turn is open', async () => {
     const ctx = await harness()
-    const agent = await agentOn(ctx, 'sel-locked', 'standard')
-    // One turn is enough: the history from here on was produced under
-    // `standard`'s tools, and a swap would strand those tool calls.
+    const agent = await agentOn(ctx, 'sel-running', 'standard')
+    // An open turn means the model loop is mid-execution; re-linking the
+    // agent under it would strand the running tool calls.
     agent.session.append('turn/start', { turn: 0 })
 
     const failure = await remoteFailure(ctx.agentPresets.select(agent, 'minimal'))
 
     expect(failure).toMatchObject({
       code: 'agent-preset/locked',
-      message: 'session "sel-locked" has already started; its agent preset is fixed',
-      details: { sessionId: SessionId('sel-locked'), agentPreset: 'minimal' },
+      message: 'session "sel-running" is running a turn; its agent preset is fixed',
+      details: { sessionId: SessionId('sel-running'), agentPreset: 'minimal' },
     })
     expect(ctx.agentPresets.composedPreset(agent.ctx)).toBe('standard')
     expect(recordedPreset(agent)).toBeUndefined()
+  })
+
+  it('allows a switch once the turn has ended', async () => {
+    const ctx = await harness()
+    const agent = await agentOn(ctx, 'sel-idle', 'standard')
+    // A finished conversation leaves the session idle; the switch recomposes
+    // the agent and records it, and the next turn runs under the new preset.
+    agent.session.append('turn/start', { turn: 0 })
+    agent.session.append('turn/end', { turn: 0, reason: { kind: 'completed' } })
+
+    expect(await ctx.agentPresets.select(agent, 'minimal')).toBe('minimal')
+
+    expect(ctx.agentPresets.composedPreset(agent.ctx)).toBe('minimal')
+    expect(recordedPreset(agent)).toEqual({ agentPreset: 'minimal' })
   })
 
   it('leaves the session on its composition when the named preset is unknown', async () => {

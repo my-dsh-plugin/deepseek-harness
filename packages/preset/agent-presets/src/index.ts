@@ -706,7 +706,7 @@ export class AgentPresets extends TypertRemoteService {
   private readonly switches = new Map<string, Promise<unknown>>()
 
   /**
-   * Compose a blank session's agent from a different preset and record it.
+   * Compose an idle session's agent from a different preset and record it.
    * @param agent - the session's live agent, resolved from the wire identity.
    * @param agentPreset - the preset to compose the agent from instead.
    * @returns the preset id that was recorded.
@@ -729,16 +729,17 @@ export class AgentPresets extends TypertRemoteService {
 
   /** One queued switch: re-check, recompose, then record what the agent runs. */
   private async swap(agent: Agent, agentPreset: string): Promise<string> {
-    // Re-read inside the queue: an earlier switch may have run, and a
-    // conversation may have started, since this call was queued. A turn is one
-    // model-loop execution; standalone plugin events never open one, so a
-    // session that has only run commands is still blank.
+    // Re-read inside the queue: an earlier switch may have run, and a turn
+    // may have opened, since this call was queued. A turn is one model-loop
+    // execution; only an OPEN one locks the composition — a finished
+    // conversation leaves the session idle, and the `agent-preset/selected`
+    // log entry keeps the history honest while the next turn runs under the
+    // newly mounted composition.
     const boundary = this.selfCtx.sessionProjections.stateOf(agent.session, 'turnBoundary')
-    if (boundary !== undefined
-      && (boundary.openTurnStartSeq !== null || boundary.lastTurn > 0)) {
+    if (boundary !== undefined && boundary.openTurnStartSeq !== null) {
       throw new RemoteError(
         'agent-preset/locked',
-        `session "${agent.id}" has already started; its agent preset is fixed`,
+        `session "${agent.id}" is running a turn; its agent preset is fixed`,
         { sessionId: agent.id, agentPreset },
       )
     }
