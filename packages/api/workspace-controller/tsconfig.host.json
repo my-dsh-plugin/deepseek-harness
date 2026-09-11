@@ -14,6 +14,7 @@
   ],
   "references": [
     { "path": "../../../vendor/cordis" },
+    { "path": "../../api/session-controller/tsconfig.host.json" },
     { "path": "../../core/session" },
     { "path": "../../host/directory-picker" },
     { "path": "../../storage/storage-domain" },

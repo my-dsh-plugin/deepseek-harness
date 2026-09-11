@@ -161,6 +161,10 @@ class TestPersistence extends SessionPersistence {
     TestPersistence.afterList?.()
     return Promise.resolve(snapshots)
   }
+
+  delete(): Promise<boolean> {
+    return Promise.resolve(false)
+  }
 }
 
 async function liveContext(config: ConstructorParameters<typeof TestSessionQueryEngine>[1] = {}): Promise<Context> {

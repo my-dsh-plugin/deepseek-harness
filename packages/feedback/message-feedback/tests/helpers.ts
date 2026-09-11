@@ -149,6 +149,12 @@ class TestPersistence extends SessionPersistence {
     }))
   }
 
+  // The service-level doubles never delete; the workspace deletion path is
+  // covered by the persistence contract suite.
+  async delete(): Promise<boolean> {
+    return false
+  }
+
   private handle(stored: StoredSession, access: SessionAccess): SessionHandle {
     let closed = false
     const handle: SessionHandle = {

@@ -38,6 +38,8 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
       readonly sessionId: SessionId
       readonly beforeSessionId?: SessionId
     }
+    /** The Session is open in this harness; close it before deleting. */
+    'session-live': { readonly sessionId: SessionId }
     /** The verb needs an interaction the composed backend does not serve. */
     'directory-picker/unavailable': { readonly capability: string }
     /** The target is not fully qualified, or the backend cannot list it. */
@@ -107,6 +109,16 @@ export interface WorkspaceArchiveSessionRequest {
 /** Complete archived Session set after a mutation. */
 export interface WorkspaceArchiveValue {
   readonly archivedSessionIds: readonly SessionId[]
+}
+
+/** Session requested for permanent deletion from storage. */
+export interface WorkspaceDeleteSessionRequest {
+  readonly sessionId: SessionId
+}
+
+/** Receipt after one stored Session is deleted. */
+export interface WorkspaceDeleteSessionValue {
+  readonly deleted: true
 }
 
 /** Complete reconnect baseline for Workspace browser state. */

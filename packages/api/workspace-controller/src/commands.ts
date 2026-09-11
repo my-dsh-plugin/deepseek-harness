@@ -9,6 +9,8 @@ import {
   WorkspaceUnknownSessionError,
 } from '@deepseek-ai/dsh-workspace'
 import { RemoteError, remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
+// Type-only: pulls the `api-session/removed` Host event into this program.
+import type {} from '@deepseek-ai/dsh-api-session-controller/types'
 import { workspaceView } from './feed.ts'
 import type {
   WorkspaceArchiveSessionRequest,
@@ -16,6 +18,8 @@ import type {
   WorkspaceCreateRequest,
   WorkspaceCreateValue,
   WorkspaceDeleteRequest,
+  WorkspaceDeleteSessionRequest,
+  WorkspaceDeleteSessionValue,
   WorkspaceDeleteValue,
   WorkspaceInsertBeforeRequest,
   WorkspaceInsertSessionBeforeRequest,
@@ -158,6 +162,54 @@ export class WorkspaceCommands {
       throw new RemoteError('session/not-found', error.message, { sessionId: request.sessionId }, { cause: error })
     }
     return { archivedSessionIds: [...this.ctx.workspaceRegistry.archivedSessionIds] }
+  }
+
+  /**
+   * Restore one archived Session to every grouping surface.
+   * @param request - Session identity to unarchive.
+   * @returns the complete resulting archive set.
+   */
+  async unarchiveSession(request: WorkspaceArchiveSessionRequest): Promise<WorkspaceArchiveValue> {
+    await this.ctx.workspaceRegistry.unarchiveSession(request.sessionId)
+    return { archivedSessionIds: [...this.ctx.workspaceRegistry.archivedSessionIds] }
+  }
+
+  /**
+   * Permanently delete one stored Session and detach it from every Workspace
+   * account. Refused while the Session is resident in this process — its live
+   * log would keep appending to the artifact this call removes — and refused
+   * as not-found when no stored artifact exists.
+   * @param request - Session identity to delete.
+   * @returns the deletion receipt.
+   */
+  async deleteSession(request: WorkspaceDeleteSessionRequest): Promise<WorkspaceDeleteSessionValue> {
+    const sessionId = request.sessionId
+    // A session this process still holds open is refused: deleting is the
+    // caller's explicit choice, and it must close the session first so no live
+    // writer keeps appending to the removed artifact.
+    const resident = this.ctx.get('sessions')?.get(sessionId)
+    if (resident !== undefined) {
+      throw new RemoteError(
+        'session-live',
+        `session "${sessionId}" is open in this harness; close it before deleting`,
+        { sessionId },
+      )
+    }
+    const persistence = this.ctx.get('sessionPersistence')
+    if (persistence === undefined) {
+      throw new RemoteError('session/not-found', `session "${sessionId}" does not exist`, { sessionId })
+    }
+    const deleted = await persistence.delete(sessionId)
+    if (!deleted) {
+      throw new RemoteError('session/not-found', `session "${sessionId}" does not exist`, { sessionId })
+    }
+    // Detach the id from every Workspace account: the deleted session must not
+    // linger as a phantom slot in any grouping surface.
+    for (const workspace of this.ctx.workspaceRegistry.list()) {
+      await workspace.detachSession(sessionId)
+    }
+    this.ctx.emit('api-session/removed', sessionId)
+    return { deleted: true }
   }
 
   private requireWorkspace(workspaceId: WorkspaceId): Workspace {

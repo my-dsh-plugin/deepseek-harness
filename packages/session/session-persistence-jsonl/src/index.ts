@@ -21,11 +21,12 @@ import { randomBytes } from 'node:crypto'
 import {
   SessionPersistence, SessionPersistenceRevision, SessionFormatUnsupportedError,
   SessionPersistenceCorruptionError,
-  SessionAlreadyExistsError, SessionPersistenceNotFoundError,
+  SessionAlreadyExistsError, SessionAlreadyOwnedError, SessionPersistenceNotFoundError,
   assertStoredId, materializeCreateHeader, sessionFormatVersionRefusal, validateStoredEvents,
   type SessionAccess, type SessionHandle,
   type SessionHandleReadResult,
   type SessionLocation, type SessionPersistenceCreateOptions,
+  type SessionPersistenceDeleteOptions,
   type SessionPersistenceListOptions, type SessionPersistenceOpenOptions,
   type SessionPersistenceSnapshot, type SessionPersistenceStatOptions,
   type SessionPersistenceRevision as PersistenceRevision,
@@ -487,6 +488,35 @@ class JsonlSessionPersistence extends SessionPersistence {
     }
     signal?.throwIfAborted()
     return snapshots
+  }
+
+  /**
+   * Delete one stored session's complete artifact generation.
+   *
+   * Refused while this process holds an open handle for the id: a writer
+   * would keep appending to a removed file, and a reader would keep
+   * validating one. The session's directory holds every generation of its
+   * log, so removing it deletes the whole artifact rather than the one
+   * generation this read resolved to.
+   * @param id - the stored session to delete.
+   * @param options - optional cancellation.
+   * @returns `true` when an artifact was removed, `false` when the id was unknown.
+   * @throws {SessionAlreadyOwnedError} when an open handle holds the id.
+   */
+  async delete(id: SessionId, options?: SessionPersistenceDeleteOptions): Promise<boolean> {
+    options?.signal?.throwIfAborted()
+    await this.ensureRootEncoding()
+    options?.signal?.throwIfAborted()
+    // Ownership first: a live handle in this process would keep reading or
+    // appending to the artifact this call removes. The caller decides whether
+    // a session is deletable; this guard is the backend's own boundary.
+    if (this.tracker.hasOpenHandle(id)) throw new SessionAlreadyOwnedError(id)
+    const selected = await this.findLog(id, options?.signal)
+    if (selected === undefined) return false
+    await rm(dirname(selected.sourcePath), { recursive: true, force: true })
+    this.coldLogMemo.delete(id)
+    options?.signal?.throwIfAborted()
+    return true
   }
 
   // --- handle-facing storage internals (package-private via the handle class below) ---

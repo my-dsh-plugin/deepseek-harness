@@ -610,5 +610,75 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
         await dispose()
       }
     })
+
+    it('deletes a stored session artifact and reports unknown ids without writing', async () => {
+      const { persistence, dispose } = await make()
+      try {
+        const m = meta('deleted-session', '/work')
+        const writer = await persistence.create(m)
+        await writer.append(oneTurnLog())
+        await writer.close()
+
+        expect(await persistence.delete(SessionId('unknown-delete'))).toBe(false)
+        await expect(persistence.stat(m.id)).resolves.toBeDefined()
+
+        expect(await persistence.delete(m.id)).toBe(true)
+        await expect(persistence.stat(m.id)).resolves.toBeUndefined()
+        const listed = await persistence.list()
+        expect(listed.some(snapshot => snapshot.header.id === m.id)).toBe(false)
+        // The id is gone for good: a second delete has nothing to remove.
+        expect(await persistence.delete(m.id)).toBe(false)
+      } finally {
+        await dispose()
+      }
+    })
+
+    it('refuses to delete while a handle holds the session open', async () => {
+      const { persistence, dispose } = await make()
+      try {
+        const m = meta('owned-delete')
+        const writer = await persistence.create(m)
+        await writer.append(oneTurnLog())
+        // A delete under the creator's own open writer must never succeed.
+        await expect(persistence.delete(m.id)).rejects.toBeInstanceOf(SessionAlreadyOwnedError)
+        await writer.close()
+
+        await expect(persistence.delete(m.id)).resolves.toBe(true)
+        const readerSession = meta('read-owner-delete')
+        const owner = await persistence.create(readerSession)
+        await owner.append(oneTurnLog())
+        await owner.close()
+        const reader = await persistence.open(readerSession.id, 'read')
+        // An open reader must never outlive the artifact it validates.
+        await expect(persistence.delete(readerSession.id)).rejects.toBeInstanceOf(SessionAlreadyOwnedError)
+        await reader.close()
+        await expect(persistence.delete(readerSession.id)).resolves.toBe(true)
+      } finally {
+        await dispose()
+      }
+    })
+
+    it('a deleted session is gone for a fresh backend over the same storage', async () => {
+      const backend = await make()
+      try {
+        if (backend.reopen === undefined) return
+        const m = meta('deleted-reopen', '/work')
+        const writer = await backend.persistence.create(m)
+        await writer.append(oneTurnLog())
+        await writer.close()
+
+        const instance = await backend.reopen()
+        try {
+          await expect(instance.persistence.delete(m.id)).resolves.toBe(true)
+          await expect(instance.persistence.stat(m.id)).resolves.toBeUndefined()
+          // The original instance sees the foreign deletion too.
+          await expect(backend.persistence.stat(m.id)).resolves.toBeUndefined()
+        } finally {
+          await instance.dispose()
+        }
+      } finally {
+        await backend.dispose()
+      }
+    })
   })
 }

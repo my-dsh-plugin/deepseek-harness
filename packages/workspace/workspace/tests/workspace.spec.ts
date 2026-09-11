@@ -942,6 +942,29 @@ describe('registry-global session archive', () => {
     expect(storedState(result.pool).archivedSessionIds).toEqual(['stray', 'live-only'])
   })
 
+  it('unarchives durably in place, idempotently skips absent ids, and leaves accounting untouched', async () => {
+    const dir = await makeDir('unarchive-home')
+    const result = await harness({ sessions: [header('kept', dir, 100), header('gone', dir, 200)] })
+    const workspace = result.registry.list()[0]!
+    await result.registry.archiveSession(SessionId('kept'))
+    await result.registry.archiveSession(SessionId('gone'))
+    expect(result.registry.archivedSessionIds).toEqual(['kept', 'gone'])
+
+    await result.registry.unarchiveSession(SessionId('kept'))
+    // Only the named id leaves the set; the remaining archive order stands.
+    expect(result.registry.archivedSessionIds).toEqual(['gone'])
+    expect(storedState(result.pool).archivedSessionIds).toEqual(['gone'])
+    // Archiving never touched the account, so the slot is exactly as it stood.
+    expect(workspace.sessionIds).toContain('kept')
+    const changesAfterFirst = result.changes.filter(change => change.table === '').length
+
+    // An id outside the set already satisfies the request: no write, no change.
+    await result.registry.unarchiveSession(SessionId('kept'))
+    await result.registry.unarchiveSession(SessionId('never-archived'))
+    expect(result.registry.archivedSessionIds).toEqual(['gone'])
+    expect(result.changes.filter(change => change.table === '').length).toBe(changesAfterFirst)
+  })
+
   it('propagates a persistence-listing failure instead of reporting an unknown session', async () => {
     const result = await harness({ sessions: [] })
     result.list.mockRejectedValueOnce(new Error('persistence backend down'))

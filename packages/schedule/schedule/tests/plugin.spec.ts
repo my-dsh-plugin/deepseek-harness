@@ -48,6 +48,11 @@ class PersistenceProbe extends SessionPersistence {
     return [...this.stored.values()].map(entry => this.snapshot(entry))
   }
 
+  // The probe never deletes; stability tests cover every other write path.
+  override async delete(): Promise<boolean> {
+    return false
+  }
+
   private snapshot(entry: StoredProbeSession): SessionPersistenceSnapshot {
     return {
       header: entry.header,

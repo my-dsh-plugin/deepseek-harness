@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionHeader } from '@deepseek-ai/dsh-session'
 import Storage from '@deepseek-ai/dsh-storage'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
@@ -41,7 +42,9 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve }
 }
 
-async function harness() {
+async function harness(overrides?: {
+  persistence?: { list(): Promise<never[]>; delete(id: SessionId): Promise<boolean> }
+}) {
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-workspace-controller-')))
   tempDirs.push(root)
   const ctx = new Context()
@@ -52,7 +55,10 @@ async function harness() {
   const storageDomain = new DomainFacility(ctx, { backend: 'memory', routes: {} })
   ctx.storage.mount('domain', storageDomain)
   ctx.provide('storageDomain', storageDomain)
-  ctx.provide('sessionPersistence', { list: () => Promise.resolve([]) } as never)
+  ctx.provide('sessionPersistence', (overrides?.persistence ?? {
+    list: () => Promise.resolve([]),
+    delete: () => Promise.resolve(false),
+  }) as never)
   await ctx.plugin(WorkspaceRegistry)
   const dispose = (): void => {}
   ctx.provide('typert', {
@@ -219,8 +225,69 @@ describe('WorkspaceController commands', () => {
 
     await expect(controller.archiveSession({ sessionId: session.id }))
       .resolves.toEqual({ archivedSessionIds: [session.id] })
+    await expect(controller.unarchiveSession({ sessionId: session.id }))
+      .resolves.toEqual({ archivedSessionIds: [] })
+    // Unarchiving an id outside the set already satisfies the caller's request:
+    // the removal is what was asked for, so it is an idempotent no-op rather
+    // than a not-found — unlike archiving, which admits only known sessions.
+    await expect(controller.unarchiveSession({ sessionId: SessionId('unknown') }))
+      .resolves.toEqual({ archivedSessionIds: [] })
     await expect(controller.archiveSession({ sessionId: SessionId('unknown') }))
       .rejects.toMatchObject({ code: 'session/not-found' })
+  })
+
+  it('deletes a cold stored session, clears its accounting, and announces removal', async () => {
+    const dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-ws-del-')))
+    tempDirs.push(dir)
+    const deleted: string[] = []
+    const sessionId = SessionId('cold-delete')
+    const fixtureHeader: SessionHeader = {
+      version: SESSION_FORMAT_VERSION,
+      id: sessionId,
+      createdAt: 1,
+      isSeeded: false,
+      cwd: dir,
+    }
+    const { controller, ctx } = await harness({
+      persistence: {
+        list: () => Promise.resolve([{ header: fixtureHeader, revision: 1 as never }]),
+        delete: async (id: SessionId) => { deleted.push(String(id)); return true },
+      },
+    })
+    const removed: string[] = []
+    ctx.on('api-session/removed', (id) => { removed.push(String(id)) })
+    const created = await controller.create({ path: dir })
+    const entity = ctx.workspaceRegistry.get(created.workspace.workspaceId)
+    if (entity === undefined) throw new Error('fixture Workspace disappeared')
+    await entity.attachSession(sessionId)
+
+    await expect(controller.deleteSession({ sessionId }))
+      .resolves.toEqual({ deleted: true })
+
+    expect(deleted).toEqual(['cold-delete'])
+    expect(entity.sessionIds).not.toContain(sessionId)
+    expect(removed).toEqual(['cold-delete'])
+  })
+
+  it('refuses to delete a resident session', async () => {
+    const { controller, ctx } = await harness()
+    ctx.sessions.create(SessionId('resident-delete'), { meta: { cwd: process.cwd() } })
+
+    await expect(controller.deleteSession({ sessionId: SessionId('resident-delete') }))
+      .rejects.toMatchObject({
+        code: 'session-live',
+        details: { sessionId: SessionId('resident-delete') },
+      })
+  })
+
+  it('reports a session missing from storage as not-found', async () => {
+    const { controller } = await harness()
+
+    await expect(controller.deleteSession({ sessionId: SessionId('not-stored') }))
+      .rejects.toMatchObject({
+        code: 'session/not-found',
+        details: { sessionId: SessionId('not-stored') },
+      })
   })
 })
 

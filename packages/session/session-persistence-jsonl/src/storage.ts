@@ -486,6 +486,18 @@ export class JsonlBackendTracker {
   }
 
   /**
+   * Whether this process holds any open handle for one session.
+   * @param id - the session to test.
+   * @returns true while a read or write handle remains open.
+   */
+  hasOpenHandle(id: SessionId): boolean {
+    for (const handle of this.openHandles) {
+      if (handle.id === id) return true
+    }
+    return false
+  }
+
+  /**
    * Release one handle's bookkeeping on close. A write handle drops its
    * ownership claim; a creator that never materialized leaves nothing behind —
    * the session never existed.
