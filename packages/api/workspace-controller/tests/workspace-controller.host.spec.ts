@@ -43,7 +43,10 @@ function deferred<T>(): Deferred<T> {
 }
 
 async function harness(overrides?: {
-  persistence?: { list(): Promise<never[]>; delete(id: SessionId): Promise<boolean> }
+  persistence?: {
+    list(): Promise<readonly { header: SessionHeader; revision: unknown }[]>
+    delete(id: SessionId): Promise<boolean>
+  }
 }) {
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'dsh-workspace-controller-')))
   tempDirs.push(root)
