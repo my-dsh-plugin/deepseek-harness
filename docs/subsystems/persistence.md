@@ -408,6 +408,21 @@ abstract stat(id: SessionId, options?: SessionPersistenceStatOptions): Promise<S
  * @returns one snapshot per stored session.
  */
 abstract list(options?: SessionPersistenceListOptions): Promise<readonly SessionPersistenceSnapshot[]>
+
+/**
+ * Delete one stored session and every artifact it owns.
+ *
+ * Deleting is permanent: the header and the event log both go. A session a
+ * handle in this process still holds is refused — a writer would keep
+ * appending to a removed artifact, and a reader would keep validating one.
+ * The caller decides whether a session is deletable before this call; the
+ * owner refusal here is the storage layer's own guard, not a policy.
+ * @param id - the stored session to delete.
+ * @param options - optional cancellation.
+ * @returns `true` when an artifact was removed, `false` when the id was unknown.
+ * @throws {SessionAlreadyOwnedError} when an open handle holds the id.
+ */
+abstract delete(id: SessionId, options?: SessionPersistenceDeleteOptions): Promise<boolean>
 ```
 
 Types: [SessionId](core.md)

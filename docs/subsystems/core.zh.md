@@ -707,7 +707,7 @@ serviceFor<K extends string & keyof Context>(agent: { ctx: Context }, name: K): 
 async recompose(agentCtx: Context, id: string): Promise<AgentPreset>
 
 /**
- * Compose a blank session's agent from a different preset and record it.
+ * Compose an idle session's agent from a different preset and record it.
  * @param agent - the session's live agent, resolved from the wire identity.
  * @param agentPreset - the preset to compose the agent from instead.
  * @returns the preset id that was recorded.
